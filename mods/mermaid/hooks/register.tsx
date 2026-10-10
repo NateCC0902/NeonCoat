@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { Register, RenderElement } from 'claude-code'
+import type { EngineInterface, Register, RenderElement } from 'claude-code'
 
 import type { Diagram } from '../types'
 
@@ -13,33 +13,52 @@ const FENCE = /^```mermaid[^\n]*\n([\s\S]*?)\n```[ \t]*$/gm
 // look squashed or the wrong size.
 const CELL_ASPECT = 2.17
 const PX_PER_COLUMN = 8
+// ponytail: a resumed session gets its pictures back for its last few replies
+// only, since each fence is a `node` run the first prompt waits for; raise
+// this to reach further back.
+const RESUMED_REPLIES = 3
+
+/** Renders each fence of `text` that has no outcome yet, and records it. */
+async function render($: EngineInterface, text: string) {
+  const known = await read($, diagrams)
+
+  for (const [, source = ''] of text.matchAll(FENCE)) {
+    if (source in known) {
+      continue
+    }
+
+    const run = await $.process
+      .run(['node', `${$.plugin.root}/render/render.mjs`], {
+        stdin: source,
+        timeoutMs: 5_000,
+      })
+      .catch(() => undefined)
+    const diagram: Diagram | null =
+      run?.exitCode === 0 ? JSON.parse(run.stdout) : null
+    await update($, diagrams, all => ({ ...all, [source]: diagram }))
+  }
+}
 
 export const register: Register = on => {
-  // ponytail: only replies appended while the mod is loaded are rendered; a
-  // resumed session's old fences stay code. Render from session.start if needed.
   on('session.append', { door: 'response' }, async ($, e, next) => {
-    const known = await read($, diagrams)
-
     for (const block of e.message.content) {
-      if (typeof block.text !== 'string') {
-        continue
+      if (typeof block.text === 'string') {
+        await render($, block.text)
       }
+    }
 
-      for (const [, source = ''] of block.text.matchAll(FENCE)) {
-        if (source in known) {
-          continue
-        }
+    return next(e)
+  })
 
-        const run = await $.process
-          .run(['node', `${$.plugin.root}/render/render.mjs`], {
-            stdin: source,
-            timeoutMs: 5_000,
-          })
-          .catch(() => undefined)
-        const diagram: Diagram | null =
-          run?.exitCode === 0 ? JSON.parse(run.stdout) : null
-        await update($, diagrams, all => ({ ...all, [source]: diagram }))
-      }
+  // The replies a resumed session opens with were appended by an earlier
+  // process, so their fences are rendered here. A new session has none.
+  on('session.start', async ($, e, next) => {
+    const replies = (await $.session.messages())
+      .filter(message => message.role === 'assistant' && message.text !== '')
+      .slice(-RESUMED_REPLIES)
+
+    for (const reply of replies) {
+      await render($, reply.text)
     }
 
     return next(e)

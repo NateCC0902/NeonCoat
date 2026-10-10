@@ -80,3 +80,26 @@ test("a fence that did not render stays the engine's own drawing", async ($, on)
   expect(drawn).toEqual([TEXT])
   await ui.unmount()
 })
+
+test('a resumed session gets pictures for its last three replies only', async ($, on) => {
+  const source = (name: string) => `flowchart LR\n  ${name} --> Z`
+  const replies = ['old', 'a', 'b', 'c'].map(name => ({
+    role: 'assistant' as const,
+    text: `\`\`\`mermaid\n${source(name)}\n\`\`\``,
+    toolUses: [],
+  }))
+  const rendered: (string | undefined)[] = []
+  on('session.messages', () => ({
+    value: [{ role: 'user' as const, text: 'draw them', toolUses: [] }, ...replies],
+  }))
+  on('process.run', (_, e) => {
+    rendered.push(e.init?.stdin)
+    const diagram = { file: '/tmp/a.png', width: 800, height: 400 }
+
+    return { value: { ...RAN, stdout: JSON.stringify(diagram) } }
+  })
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+
+  expect(rendered).toEqual(['a', 'b', 'c'].map(source))
+})

@@ -17,18 +17,26 @@ const OVERRIDES = { tdd: 'user-invocable-only', simplify: 'user-invocable-only',
  * Stands for the engine beneath the mod: a home folder of skills, the
  * settings, and a system prompt of one section.
  */
-const engine = (on: On, overrides: Record<string, string> = OVERRIDES) => {
+const engine = (
+  on: On,
+  overrides: Record<string, string> = OVERRIDES,
+  isUnreadable: () => boolean = () => false,
+) => {
   on('env.get', () => ({ value: '/home/u' }))
   on('settings.read', () => ({ value: { skillOverrides: overrides } }))
-  on('fs.list', () => ({
-    value: Object.keys(FILES).map(name => ({
-      name,
-      kind: 'other' as const,
-      size: 0,
-      mtimeMs: 0,
-      isLink: true,
-    })),
-  }))
+  on('fs.list', () =>
+    isUnreadable()
+      ? { deny: 'EACCES: the skills folder' }
+      : {
+          value: Object.keys(FILES).map(name => ({
+            name,
+            kind: 'other' as const,
+            size: 0,
+            mtimeMs: 0,
+            isLink: true,
+          })),
+        },
+  )
   on('fs.read', (_, e) => {
     const frontmatter = FILES[e.path.slice(SKILLS.length + 1, -'/SKILL.md'.length)]
 
@@ -70,4 +78,23 @@ test('adds nothing to a bare prompt, or when no skill is user-only', async ($, o
 
   expect((await compose($, ['bare'])).sections).toHaveLength(1)
   expect((await compose($)).sections).toHaveLength(1)
+})
+
+test('a failed read is shown once and tried again on the next prompt', async ($, on) => {
+  let isUnreadable = true
+  const logged: string[] = []
+  on('ui.log', (_, e) => {
+    logged.push(e.text)
+
+    return { value: undefined }
+  })
+  engine(on, OVERRIDES, () => isUnreadable)
+
+  expect((await compose($)).sections).toHaveLength(1)
+  expect((await compose($)).sections).toHaveLength(1)
+  expect(logged).toHaveLength(1)
+  expect(logged[0]).toMatch(/^skill-router: .*EACCES/)
+
+  isUnreadable = false
+  expect((await compose($)).sections).toHaveLength(2)
 })

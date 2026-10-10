@@ -77,14 +77,26 @@ async function listing($: EngineInterface): Promise<string> {
 export const register: Register = on => {
   // Read once per load: a skill added mid-session is listed from the next one.
   let text: Promise<string> | undefined
+  let reported = ''
 
   on('prompt.compose', async ($, e, next) => {
     const composed = await next(e)
     if (e.traits.includes('bare')) {
       return composed
     }
-    text ??= listing($).catch(() => '')
-    const listed = await text
+    text ??= listing($)
+    const listed = await text.catch((error: unknown) => {
+      // A failed read is not kept: the next prompt tries again. Its reason is
+      // shown once, so a section that went missing does not go unnoticed.
+      text = undefined
+      const reason = String(error)
+      if (reason !== reported) {
+        reported = reason
+        $.ui.log(`${$.plugin.name}: no skills are listed, reading them failed: ${reason}`)
+      }
+
+      return ''
+    })
 
     return listed === ''
       ? composed
