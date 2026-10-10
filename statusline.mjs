@@ -190,43 +190,44 @@ if (input.prompt_cache?.hit_ratio !== undefined) {
 
 segments.push(git(cwd))
 
+// Claude Code's own registry of running sessions, one file per process. It
+// says what the JSON on stdin does not: whether this session is under Remote
+// Control, and what the other sessions are doing.
+//
+// ponytail: its format is internal. If a release changes it, what is read
+// from it here is left out, and nothing else breaks.
+const registry = () => {
+  const dir = join(homedir(), '.claude', 'sessions')
+
+  try {
+    return readdirSync(dir)
+      .filter(name => /^\d+\.json$/.test(name))
+      .map(name => parse(readFileSync(join(dir, name), 'utf8')))
+      .filter(session => session.sessionId)
+  } catch {
+    return []
+  }
+}
+
+const running = registry()
+
 // Whether the session is under Remote Control (open to the phone and the
 // web), said last in the first row: a full dot when it is, a hollow one when
 // not, then the name the person gave the session (`/rename`), if they gave
 // one. A title Claude Code made up is left out: it is too long for the row.
-// Nothing when that cannot be told.
+// Nothing when the registry does not hold the session.
 //
-// ponytail: the JSON on stdin does not say. Claude Code's own registry of
-// running sessions does, one file per process, and its format is internal: if
-// a release changes it the segment is left out, and nothing else breaks.
-const remote = () => {
-  const dir = join(homedir(), '.claude', 'sessions')
+// A session that crashed leaves its file behind, and resuming it starts
+// another under the same id: the one updated last is the one running.
+const [mine] = running
+  .filter(session => session.sessionId === input.session_id)
+  .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
 
-  try {
-    // A session that crashed leaves its file behind, and resuming it starts
-    // another under the same id: the one updated last is the one running.
-    const [mine] = readdirSync(dir)
-      .filter(name => /^\d+\.json$/.test(name))
-      .map(name => parse(readFileSync(join(dir, name), 'utf8')))
-      .filter(session => session.sessionId === input.session_id)
-      .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
-
-    const name =
-      mine?.nameSource === 'user' && mine.name ? paint(` - ${mine.name}`, 'dim') : ''
-
-    return (
-      mine &&
-      (mine.bridgeSessionId ? paint('◉ rc', 'green', true) : paint('○ rc', 'dim')) + name
-    )
-  } catch {
-    return undefined
-  }
-}
-
-const remoteControl = remote()
-
-if (remoteControl) {
-  segments.push(remoteControl)
+if (mine) {
+  segments.push(
+    (mine.bridgeSessionId ? paint('◉ rc', 'green', true) : paint('○ rc', 'dim')) +
+      (mine.nameSource === 'user' && mine.name ? paint(` - ${mine.name}`, 'dim') : ''),
+  )
 }
 
 // How much of each subscription window is used, counting up: 100% is nothing
@@ -274,6 +275,54 @@ const countdowns = windows
 
 if (countdowns.length > 0) {
   usageRow.push(paint('reset in ', 'dim') + countdowns.join(' '))
+}
+
+// The other sessions on this machine, last in the second row: a full dot for
+// one at work, a hollow one for one at rest, and, loud, what a session is
+// waiting on the person for (an approval, an answer). Those come first.
+const isAlive = pid => {
+  try {
+    process.kill(pid, 0)
+
+    return true
+  } catch (error) {
+    // Another user's process cannot be signalled, yet it is there.
+    return error.code === 'EPERM'
+  }
+}
+
+// At most this many are named, the waiting and the working ahead of the rest.
+const SHOWN = 4
+const RANK = { waiting: 0, busy: 1 }
+// ponytail: a crashed session's pid, once the system gives it to another
+// program, counts as alive; compare the entry's `procStart` if a ghost shows.
+const others = running
+  .filter(
+    session =>
+      session.sessionId !== input.session_id &&
+      session.name &&
+      !String(session.kind).startsWith('daemon') &&
+      isAlive(session.pid),
+  )
+  .sort(
+    (a, b) =>
+      (RANK[a.status] ?? 2) - (RANK[b.status] ?? 2) || a.name.localeCompare(b.name),
+  )
+
+if (others.length > 0) {
+  usageRow.push(
+    others
+      .slice(0, SHOWN)
+      .map(session =>
+        session.status === 'waiting'
+          ? paint(`${session.name} ◆ ${session.waitingFor ?? 'waiting'}`, 'yellow', true)
+          : session.status === 'busy'
+            ? paint(session.name, 'text') + paint(' ●', 'yellow')
+            : paint(`${session.name} ○`, 'dim'),
+      )
+      .concat(others.length > SHOWN ? paint(`+${others.length - SHOWN}`, 'dim') : [])
+      .join('  '),
+  )
 }
 
 const gap = paint('  │  ', 'dim')
