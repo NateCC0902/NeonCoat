@@ -1,5 +1,5 @@
 {
-  "name": "mermaid-render",
+  "name": "reply-pictures-render",
   "private": true,
   "type": "module",
   "scripts": { "test": "node --test" },

@@ -3,9 +3,9 @@ import type { EngineInterface, Register, RenderElement } from 'claude-code'
 
 import type { Diagram } from '../types'
 
-const diagrams = atom({ plugin: 'mermaid', key: 'diagrams' } as const, {})
-const zoomed = atom({ plugin: 'mermaid', key: 'zoomed' } as const, null)
-const PANE = 'mermaid-zoom'
+const diagrams = atom({ plugin: 'reply-pictures', key: 'diagrams' } as const, {})
+const zoomed = atom({ plugin: 'reply-pictures', key: 'zoomed' } as const, null)
+const PANE = 'picture-zoom'
 
 // A Button's key, from what it copies: a reply is drawn in parts when two mods
 // draw it between them, so a count kept by one part would repeat in the next.

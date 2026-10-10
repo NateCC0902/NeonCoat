@@ -43,7 +43,7 @@ type Block = { hasGapAbove: boolean } & (
 type Align = 'flex-start' | 'center' | 'flex-end'
 
 const FENCE = /^\s*(`{3,}|~{3,})/
-// The fences the mermaid mod draws as pictures: left as text, so that it
+// The fences the reply-pictures mod draws as pictures: left as text, so that it
 // gets them whichever of the two mods sits above the other.
 const PICTURED = /^(mermaid|math)$/
 const RULE = /^ {0,3}([-*_])( *\1){2,} *$/

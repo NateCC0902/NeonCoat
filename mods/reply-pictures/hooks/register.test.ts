@@ -42,7 +42,7 @@ const reply = async ($: Engine, uuid: string) => {
   })
 
   return $.ui.mount({
-    plugin: 'mermaid',
+    plugin: 'reply-pictures',
     surface: 'terminal',
     component: 'AssistantMessage',
     props: { text: TEXT, isFirstOfReply: true },
@@ -148,7 +148,7 @@ const show = async ($: Engine, text: string) => {
   })
 
   return $.ui.mount({
-    plugin: 'mermaid',
+    plugin: 'reply-pictures',
     surface: 'terminal',
     component: 'AssistantMessage',
     props: { text, isFirstOfReply: true },
@@ -223,10 +223,10 @@ test('a picture has buttons that copy its source and open it in a pane', async (
   engine(on)
   const pane = (bodyColumns: number, bodyRows: number) =>
     $.ui.mount({
-      plugin: 'mermaid',
+      plugin: 'reply-pictures',
       surface: 'terminal',
       component: 'Pane',
-      requestId: 'mermaid-zoom',
+      requestId: 'picture-zoom',
       props: {
         title: 'Picture',
         isFocused: false,
@@ -249,7 +249,7 @@ test('a picture has buttons that copy its source and open it in a pane', async (
 
   await ui.press({ key: keys[1] ?? '' })
   expect(opened).toHaveLength(1)
-  expect(opened[0]).toMatchObject({ id: 'mermaid-zoom', closeOnEscape: true })
+  expect(opened[0]).toMatchObject({ id: 'picture-zoom', closeOnEscape: true })
 
   // As wide as the pane, or as tall as it when that comes first; 2:1 kept.
   const wide = await pane(60, 40)

@@ -1,5 +1,5 @@
 {
-  "name": "readable",
+  "name": "reply-markdown",
   "version": "0.1.0",
   "description": "Draws a reply's headings, lists, quotes, callouts, tables and rules in color, and its code fences as cards with a copy button (terminal)",
   "userConfig": {

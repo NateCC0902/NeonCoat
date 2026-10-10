@@ -35,7 +35,7 @@ const engine = (on: On, settings: Record<string, unknown> = {}) => {
 
 const mount = ($: Engine, text: string) =>
   $.ui.mount({
-    plugin: 'readable',
+    plugin: 'reply-markdown',
     surface: 'terminal',
     component: 'AssistantMessage',
     props: { text, isFirstOfReply: true },
@@ -195,7 +195,7 @@ test('a code fence is a card with its language and a button that copies it', asy
   await ui.unmount()
 })
 
-test('the same code twice in a reply, and a fence the mermaid mod draws', async ($, on) => {
+test('the same code twice in a reply, and a fence the reply-pictures mod draws', async ($, on) => {
   const picture = '```mermaid\nflowchart LR\n  A --> B\n```'
   const drawn = engine(on)
   const code = '```mathematica\nPlot[Sin[x], {x, 0, 2 Pi}]\n```'
@@ -207,7 +207,7 @@ test('the same code twice in a reply, and a fence the mermaid mod draws', async 
     'sh',
     'mathematica',
   ])
-  // Left to whatever sits beneath: the mermaid mod, else the engine.
+  // Left to whatever sits beneath: the reply-pictures mod, else the engine.
   expect(drawn).toEqual([picture])
   await ui.unmount()
 })
