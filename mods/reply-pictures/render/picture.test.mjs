@@ -26,8 +26,10 @@ test('picture passes a PNG through as it is', () => {
   assert.deepEqual(line, { file: join(dir, 'a.png'), width: 12, height: 8 })
 })
 
-for (const name of ['a.jpg', 'a.svg']) {
-  test(`picture draws ${name} as a PNG of the same size`, () => {
+// A JPEG becomes a PNG of its own pixels; an SVG, having none, one three
+// times as fine, its size still said in the SVG's px.
+for (const [name, zoom] of [['a.jpg', 1], ['a.svg', 3]]) {
+  test(`picture draws ${name} as a PNG, ${zoom} px to each of its own`, () => {
     const { file, width, height } = JSON.parse(picture(join(dir, name)).stdout)
     const png = readFileSync(file)
     rmSync(file)
@@ -35,6 +37,7 @@ for (const name of ['a.jpg', 'a.svg']) {
     assert.notEqual(file, join(dir, name))
     assert.equal(png.toString('latin1', 1, 4), 'PNG')
     assert.deepEqual([width, height], [12, 8])
+    assert.deepEqual([png.readUInt32BE(16), png.readUInt32BE(20)], [12 * zoom, 8 * zoom])
   })
 }
 
