@@ -211,3 +211,21 @@ test('the same code twice in a reply, and a fence the reply-pictures mod draws',
   expect(drawn).toEqual([picture])
   await ui.unmount()
 })
+
+test(
+  'the borders follow the options',
+  { options: { tableBorder: 'round', cardBorder: 'bold' } },
+  async ($, on) => {
+    engine(on)
+    const ui = await mount($, `${TABLE}\n\n\`\`\`sh\nls\n\`\`\`\n\n> [!NOTE]\n> Mind it.`)
+    const texts = (await ui.findAll({ type: 'Text' })).map(text => text.text)
+    const borders = (await ui.findAll({ type: 'Box' })).map(box => box.props.borderStyle).filter(Boolean)
+
+    expect(texts).toContain('╭──────┬─────────────╮')
+    expect(texts).toContain('╰──────┴─────────────╯')
+    expect(texts.some(text => text.startsWith('│\n│'))).toBe(true)
+    // The code card and the callout.
+    expect(borders).toEqual(['bold', 'bold'])
+    await ui.unmount()
+  },
+)

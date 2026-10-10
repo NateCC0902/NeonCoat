@@ -27,9 +27,14 @@ const TASK = /^\[([ xX])\][ \t]+([\s\S]*)$/
 // many rows, clipped to what it stands beside; anything taller runs out of bar.
 const bar = (glyph: string) => Array(200).fill(glyph).join('\n')
 const BAR = bar('│')
-// A table's frame is heavy, as lipgloss's ThickBorder: Unicode has no heavy
-// arc, so its corners are square.
-const HEAVY_BAR = bar('┃')
+// A table's frame by border style, under the names the engine's own Box
+// takes: the corners and joints of its three edges, then its two lines.
+// Thick lines have square corners only: Unicode has no heavy arc.
+const FRAME: Record<string, { edges: [string, string, string]; line: string; bar: string }> = {
+  round: { edges: ['╭┬╮', '├┼┤', '╰┴╯'], line: '─', bar: '│' },
+  single: { edges: ['┌┬┐', '├┼┤', '└┴┘'], line: '─', bar: '│' },
+  bold: { edges: ['┏┳┓', '┣╋┫', '┗┻┛'], line: '━', bar: '┃' },
+}
 
 type Block = { hasGapAbove: boolean } & (
   | { kind: 'raw'; text: string }
@@ -220,6 +225,10 @@ export const register: Register = (on, options) => {
     return
   }
 
+  // A style the settings do not hold, or one the mod does not draw, is the default.
+  const frame = FRAME[String(options.tableBorder)] ?? FRAME.bold!
+  const cardBorder = String(options.cardBorder) in FRAME ? String(options.cardBorder) : 'round'
+
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
     if (e.surface !== 'terminal' || e.props.isSummary) {
       return next(e)
@@ -258,7 +267,7 @@ export const register: Register = (on, options) => {
             marginTop={marginTop}
             paddingX={1}
             width={columns}
-            borderStyle="round"
+            borderStyle={cardBorder}
             borderColor={COLOR.rule}
           >
             <Box flexDirection="row" justifyContent="space-between">
@@ -286,9 +295,10 @@ export const register: Register = (on, options) => {
 
         // The frame is drawn as text, so that its lines meet in the right
         // glyphs; a bar spans its row's height however the cells wrap.
-        const edge = (left: string, cross: string, right: string) => (
+        const upright = bar(frame.bar)
+        const edge = ([left = '', cross = '', right = '']: string) => (
           <Text color={COLOR.rule} wrap="truncate-end">
-            {left + widths.map(each => '━'.repeat(each + 2)).join(cross) + right}
+            {left + widths.map(each => frame.line.repeat(each + 2)).join(cross) + right}
           </Text>
         )
         const offsets = widths.map((_, column) =>
@@ -299,7 +309,7 @@ export const register: Register = (on, options) => {
           <Box flexDirection="row" width={total}>
             {[...offsets, total - 1].map(left => (
               <Box position="absolute" top={0} bottom={0} left={left} width={1} overflow="hidden">
-                <Text color={COLOR.rule}>{HEAVY_BAR}</Text>
+                <Text color={COLOR.rule}>{upright}</Text>
               </Box>
             ))}
             {widths.map((each, column) => (
@@ -323,11 +333,11 @@ export const register: Register = (on, options) => {
         )
         rows.push(
           <Box flexDirection="column" marginTop={marginTop}>
-            {edge('┏', '┳', '┓')}
+            {edge(frame.edges[0])}
             {row(block.header, true)}
-            {edge('┣', '╋', '┫')}
+            {edge(frame.edges[1])}
             {block.rows.map(texts => row(texts, false))}
-            {edge('┗', '┻', '┛')}
+            {edge(frame.edges[2])}
           </Box>,
         )
       } else if (block.kind === 'rule') {
@@ -365,7 +375,7 @@ export const register: Register = (on, options) => {
             marginTop={marginTop}
             paddingX={1}
             width={columns}
-            borderStyle="round"
+            borderStyle={cardBorder}
             borderColor={color}
           >
             <Text bold color={color}>
