@@ -63,16 +63,16 @@ const draw = sessionId =>
   }).replace(/\x1b\[[\d;]*m/g, '')
 
 test('says whether the session is under Remote Control, or nothing when it cannot tell', () => {
-  // Last in the first row; after it the name the person gave, never a
-  // derived one or a title.
-  assert.match(draw('on'), /│ {2}◉ rc - worker$/m)
-  assert.match(draw('off'), /│ {2}○ rc$/m)
+  // In the second row, ahead of the other sessions; after it the name the
+  // person gave, never a derived one or a title.
+  assert.match(draw('on'), /^◉ rc - worker {2}│ {2}\(2\)/m)
+  assert.match(draw('off'), /^○ rc {2}│ {2}\(2\)/m)
   assert.doesNotMatch(draw('not-running'), /[◉○] rc/)
 })
 
 test('names the other sessions that are running, the one waiting on the person first', () => {
-  // The second row holds nothing else here: no usage window is known.
-  assert.match(draw('on'), /^garage ◆ input needed {2}empty-ws-89 ○$/m)
-  assert.match(draw('off'), /^garage ◆ input needed {2}worker ●$/m)
+  // Last in the second row.
+  assert.match(draw('on'), /│ {2}\(2\) {2}◆ garage - input needed {2}○ empty-ws-89$/m)
+  assert.match(draw('off'), /│ {2}\(2\) {2}◆ garage - input needed {2}● worker$/m)
   assert.doesNotMatch(draw('on'), /ghost/)
 })

@@ -212,10 +212,11 @@ const registry = () => {
 const running = registry()
 
 // Whether the session is under Remote Control (open to the phone and the
-// web), said last in the first row: a full dot when it is, a hollow one when
-// not, then the name the person gave the session (`/rename`), if they gave
-// one. A title Claude Code made up is left out: it is too long for the row.
-// Nothing when the registry does not hold the session.
+// web), said in the second row between the windows and the other sessions: a
+// full dot when it is, a hollow one when not, then the name the person gave
+// the session (`/rename`), if they gave one. A title Claude Code made up is
+// left out: it is too long for the row. Nothing when the registry does not
+// hold the session.
 //
 // A session that crashed leaves its file behind, and resuming it starts
 // another under the same id: the one updated last is the one running.
@@ -223,12 +224,10 @@ const [mine] = running
   .filter(session => session.sessionId === input.session_id)
   .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
 
-if (mine) {
-  segments.push(
-    (mine.bridgeSessionId ? paint('◉ rc', 'green', true) : paint('○ rc', 'dim')) +
-      (mine.nameSource === 'user' && mine.name ? paint(` - ${mine.name}`, 'dim') : ''),
-  )
-}
+const remoteControl =
+  mine &&
+  (mine.bridgeSessionId ? paint('◉ rc', 'green', true) : paint('○ rc', 'dim')) +
+    (mine.nameSource === 'user' && mine.name ? paint(` - ${mine.name}`, 'dim') : '')
 
 // How much of each subscription window is used, counting up: 100% is nothing
 // left to use. A second row, between the status row and the mode line.
@@ -259,14 +258,21 @@ const windows = [
   ['week', limits.seven_day],
 ].filter(([, window]) => used(window) !== undefined)
 
-const usageRow = windows.map(([label, window]) => {
-  const spent = Math.round(used(window))
-  const tone = spent >= 90 ? 'red' : spent >= 70 ? 'yellow' : 'green'
+// The windows are one segment, a space between them and no bar.
+const usageRow = windows.length === 0
+  ? []
+  : [
+      windows
+        .map(([label, window]) => {
+          const spent = Math.round(used(window))
+          const tone = spent >= 90 ? 'red' : spent >= 70 ? 'yellow' : 'green'
 
-  return paint(`${label} `, 'dim') + paint(`${spent}%`, tone, true)
-})
+          return paint(`${label} `, 'dim') + paint(`${spent}%`, tone, true)
+        })
+        .join('  '),
+    ]
 
-// One last segment says when each window refills: "reset in 1h32m(5h)
+// One last segment says how long until each window refills: "1h32m(5h)
 // 3days(week)". A window that has already refilled is left out of it.
 const countdowns = windows
   .map(([label, window]) => [label, minutesUntil(window.resets_at)])
@@ -274,12 +280,17 @@ const countdowns = windows
   .map(([label, minutes]) => paint(span(minutes), 'text') + paint(`(${label})`, 'dim'))
 
 if (countdowns.length > 0) {
-  usageRow.push(paint('reset in ', 'dim') + countdowns.join(' '))
+  usageRow.push(countdowns.join(' '))
 }
 
-// The other sessions on this machine, last in the second row: a full dot for
-// one at work, a hollow one for one at rest, and, loud, what a session is
-// waiting on the person for (an approval, an answer). Those come first.
+if (remoteControl) {
+  usageRow.push(remoteControl)
+}
+
+// The other sessions on this machine, last in the second row: how many, then
+// each by name behind a full dot for one at work, a hollow one for one at
+// rest, and, loud, a diamond and what the session is waiting on the person
+// for (an approval, an answer). Those come first.
 const isAlive = pid => {
   try {
     process.kill(pid, 0)
@@ -311,17 +322,18 @@ const others = running
 
 if (others.length > 0) {
   usageRow.push(
-    others
-      .slice(0, SHOWN)
-      .map(session =>
-        session.status === 'waiting'
-          ? paint(`${session.name} ◆ ${session.waitingFor ?? 'waiting'}`, 'yellow', true)
-          : session.status === 'busy'
-            ? paint(session.name, 'text') + paint(' ●', 'yellow')
-            : paint(`${session.name} ○`, 'dim'),
-      )
-      .concat(others.length > SHOWN ? paint(`+${others.length - SHOWN}`, 'dim') : [])
-      .join('  '),
+    paint(`(${others.length})  `, 'dim') +
+      others
+        .slice(0, SHOWN)
+        .map(session =>
+          session.status === 'waiting'
+            ? paint(`◆ ${session.name} - ${session.waitingFor ?? 'waiting'}`, 'yellow', true)
+            : session.status === 'busy'
+              ? paint('● ', 'yellow') + paint(session.name, 'text')
+              : paint(`○ ${session.name}`, 'dim'),
+        )
+        .concat(others.length > SHOWN ? paint(`+${others.length - SHOWN}`, 'dim') : [])
+        .join('  '),
   )
 }
 
