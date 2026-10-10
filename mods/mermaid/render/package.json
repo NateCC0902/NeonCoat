@@ -1,0 +1,7 @@
+{
+  "name": "mermaid-render",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test" },
+  "dependencies": { "beautiful-mermaid": "1.1.3" }
+}
