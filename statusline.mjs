@@ -97,41 +97,6 @@ const segments = [
     (input.effort?.level ? paint(` ${input.effort.level}`, 'purple') : ''),
 ]
 
-// Whether the session is under Remote Control (open to the phone and the
-// web), said first of all; nothing when that cannot be told.
-//
-// ponytail: the JSON on stdin does not say. Claude Code's own registry of
-// running sessions does, one file per process, and its format is internal: if
-// a release changes it the segment is left out, and nothing else breaks.
-const remote = () => {
-  const dir = join(homedir(), '.claude', 'sessions')
-
-  try {
-    // A session that crashed leaves its file behind, and resuming it starts
-    // another under the same id: the one updated last is the one running.
-    const [mine] = readdirSync(dir)
-      .filter(name => /^\d+\.json$/.test(name))
-      .map(name => parse(readFileSync(join(dir, name), 'utf8')))
-      .filter(session => session.sessionId === input.session_id)
-      .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
-
-    return (
-      mine &&
-      (mine.bridgeSessionId
-        ? paint('◉ rc', 'green', true)
-        : paint('○ rc off', 'dim'))
-    )
-  } catch {
-    return undefined
-  }
-}
-
-const remoteControl = remote()
-
-if (remoteControl) {
-  segments.unshift(remoteControl)
-}
-
 // ponytail: Claude Code hands over the last response's output tokens and the
 // session's total API time, never a speed. So a small tally per session lives
 // in the temp folder: each new response adds its tokens and the API time since
@@ -224,6 +189,41 @@ if (input.prompt_cache?.hit_ratio !== undefined) {
 }
 
 segments.push(git(cwd))
+
+// Whether the session is under Remote Control (open to the phone and the
+// web), said last in the first row; nothing when that cannot be told.
+//
+// ponytail: the JSON on stdin does not say. Claude Code's own registry of
+// running sessions does, one file per process, and its format is internal: if
+// a release changes it the segment is left out, and nothing else breaks.
+const remote = () => {
+  const dir = join(homedir(), '.claude', 'sessions')
+
+  try {
+    // A session that crashed leaves its file behind, and resuming it starts
+    // another under the same id: the one updated last is the one running.
+    const [mine] = readdirSync(dir)
+      .filter(name => /^\d+\.json$/.test(name))
+      .map(name => parse(readFileSync(join(dir, name), 'utf8')))
+      .filter(session => session.sessionId === input.session_id)
+      .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+
+    return (
+      mine &&
+      (mine.bridgeSessionId
+        ? paint('◉ rc', 'green', true)
+        : paint('○ rc off', 'dim'))
+    )
+  } catch {
+    return undefined
+  }
+}
+
+const remoteControl = remote()
+
+if (remoteControl) {
+  segments.push(remoteControl)
+}
 
 // How much of each subscription window is used, counting up: 100% is nothing
 // left to use. A second row, between the status row and the mode line.
