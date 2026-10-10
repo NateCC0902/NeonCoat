@@ -1,6 +1,38 @@
 {
   "name": "mermaid",
   "version": "0.1.0",
-  "description": "Draws the mermaid code fences of a reply as pictures in the terminal (kitty graphics: Ghostty, kitty)",
-  "types": "./types/index.d.ts"
+  "description": "Draws the mermaid fences, math formulas and local images of a reply as pictures in the terminal (kitty graphics: Ghostty, kitty)",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "enabled": {
+      "type": "boolean",
+      "title": "Enabled",
+      "description": "Turn this mod off without removing it. Takes effect at once.",
+      "default": true
+    },
+    "resumedReplies": {
+      "type": "number",
+      "title": "Replies redrawn on resume",
+      "description": "How many of a resumed session's last replies get their pictures drawn again. Each picture is rendered before the first prompt, so a higher number starts slower. 0 redraws none.",
+      "default": 3,
+      "min": 0,
+      "max": 50
+    },
+    "pxPerColumn": {
+      "type": "number",
+      "title": "Picture pixels per column",
+      "description": "How many pixels of a picture one terminal column shows. A lower number draws pictures larger.",
+      "default": 8,
+      "min": 1,
+      "max": 64
+    },
+    "cellAspect": {
+      "type": "number",
+      "title": "Cell height over width",
+      "description": "How many times taller than wide one terminal cell is. Change it when pictures look squashed or stretched. 2.17 was measured on Ghostty with JetBrains Mono 18.",
+      "default": 2.17,
+      "min": 1,
+      "max": 4
+    }
+  }
 }

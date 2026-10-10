@@ -1,5 +1,13 @@
 {
   "name": "skill-router",
   "version": "0.1.0",
-  "description": "Lists the skills only the user can run in Claude's system prompt, so it names the right /skill at the right moment"
+  "description": "Lists the skills only the user can run in Claude's system prompt, so it names the right /skill at the right moment",
+  "userConfig": {
+    "enabled": {
+      "type": "boolean",
+      "title": "Enabled",
+      "description": "Turn this mod off without removing it. Takes effect at once.",
+      "default": true
+    }
+  }
 }

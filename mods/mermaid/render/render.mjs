@@ -11,7 +11,7 @@ import { pathToFileURL } from 'node:url'
 import { renderMermaidSVG } from 'beautiful-mermaid'
 
 // Charmtone, the same colors as ~/.claude/themes/charm.json.
-const THEME = {
+export const THEME = {
   bg: '#201f26',
   fg: '#ecebf0',
   line: '#858392',
@@ -21,7 +21,7 @@ const THEME = {
   transparent: true,
 }
 // PNG px per CSS px, so the picture stays sharp when the terminal scales it.
-const ZOOM = 3
+export const ZOOM = 3
 
 // ponytail: librsvg has no CSS var() or color-mix(), so resolve the forms
 // beautiful-mermaid 1.1.3 emits (hex colors, srgb mixes). Rasterize with
@@ -84,18 +84,21 @@ export function flatten(svg) {
   return (out + svg.slice(from)).replace(/@import url\('[^']*'\);/g, '')
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const source = readFileSync(0, 'utf8')
-  const svg = flatten(renderMermaidSVG(source, THEME))
+/** Draws `svg` as <tmp>/claude-mermaid/<sha1 of key>.png and prints its line. */
+export function rasterize(svg, key) {
   const dir = join(tmpdir(), 'claude-mermaid')
   mkdirSync(dir, { recursive: true })
-  // Named by theme and source, so a restyle never shows a picture drawn before it.
-  const name = createHash('sha1').update(JSON.stringify(THEME)).update(source).digest('hex')
-  const file = join(dir, name + '.png')
+  const file = join(dir, createHash('sha1').update(key).digest('hex') + '.png')
   const png = spawnSync('rsvg-convert', ['--zoom', String(ZOOM), '--output', file], { input: svg })
   if (png.status !== 0) throw new Error(String(png.stderr || png.error))
 
   const ihdr = readFileSync(file).subarray(16, 24)
   const [width, height] = [ihdr.readUInt32BE(0) / ZOOM, ihdr.readUInt32BE(4) / ZOOM]
   console.log(JSON.stringify({ file, width, height }))
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const source = readFileSync(0, 'utf8')
+  // Named by theme and source, so a restyle never shows a picture drawn before it.
+  rasterize(flatten(renderMermaidSVG(source, THEME)), JSON.stringify(THEME) + source)
 }

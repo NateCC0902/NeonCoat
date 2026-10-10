@@ -29,8 +29,8 @@ const row = ([name, description]: [string, string]) => {
 }
 
 /**
- * The section's text: every skill in the `/` menu that Claude is not shown,
- * or `''` when there is none.
+ * The list's rows: every skill in the `/` menu that Claude is not shown, or
+ * `''` when there is none.
  *
  * A skill is user-only by its own frontmatter (`disable-model-invocation`) or
  * by the person's `skillOverrides` (`user-invocable-only`); `off` leaves the
@@ -71,35 +71,83 @@ async function listing($: EngineInterface): Promise<string> {
   // Sorted, so the text is the same on every load and the prompt cache holds.
   const rows = [...skills].sort(([a], [b]) => (a < b ? -1 : 1)).map(row)
 
-  return `${INTRO}\n\n${rows.join('\n')}`
+  return rows.join('\n')
 }
 
-export const register: Register = on => {
-  // Read once per load: a skill added mid-session is listed from the next one.
-  let text: Promise<string> | undefined
-  let reported = ''
+const ROUTE = `You route a Claude Code user to one of their skills. Each skill listed below is a slash command that only the user can run. Answer the user's question by naming the one or two skills that fit, the best fit first, each on a line of its own as "/name: why it fits". If none fits, say so in one line. Write nothing else.`
+
+// Read once per load: a skill added mid-session is listed from the next one.
+let rows: Promise<string> | undefined
+let reported = ''
+
+/** The list's rows; `''`, its reason shown once, when reading them failed. */
+function list($: EngineInterface) {
+  return (rows ??= listing($)).catch((error: unknown) => {
+    // A failed read is not kept: the next prompt tries again. Its reason is
+    // shown once, so a section that went missing does not go unnoticed.
+    rows = undefined
+    const reason = String(error)
+    if (reason !== reported) {
+      reported = reason
+      $.ui.log(`${$.plugin.name}: no skills are listed, reading them failed: ${reason}`)
+    }
+
+    return ''
+  })
+}
+
+export const register: Register = (on, options) => {
+  if (options.enabled === false) {
+    return
+  }
+  rows = undefined
+  reported = ''
 
   on('prompt.compose', async ($, e, next) => {
     const composed = await next(e)
-    if (e.traits.includes('bare')) {
-      return composed
-    }
-    text ??= listing($)
-    const listed = await text.catch((error: unknown) => {
-      // A failed read is not kept: the next prompt tries again. Its reason is
-      // shown once, so a section that went missing does not go unnoticed.
-      text = undefined
-      const reason = String(error)
-      if (reason !== reported) {
-        reported = reason
-        $.ui.log(`${$.plugin.name}: no skills are listed, reading them failed: ${reason}`)
-      }
-
-      return ''
-    })
+    const listed = e.traits.includes('bare') ? '' : await list($)
 
     return listed === ''
       ? composed
-      : { sections: [...composed.sections, { id: SECTION, text: listed, scope: 'session' }] }
+      : {
+          sections: [
+            ...composed.sections,
+            { id: SECTION, text: `${INTRO}\n\n${listed}`, scope: 'session' },
+          ],
+        }
+  })
+
+  on('session.start', async ($, e, next) => {
+    await $.command.register({
+      name: 'skill-router',
+      description: 'Ask which of your user-only skills fits a situation',
+      argumentHint: '<question>',
+    })
+
+    return next(e)
+  })
+
+  // A small model answers aside, at once and without a turn of the session.
+  // ponytail: it reads the question alone, not the conversation; hand it the
+  // last messages too if its answers miss what the session is about.
+  on('command.run', { command: 'skill-router' }, async ($, e) => {
+    const listed = await list($)
+    const question = e.args.trim()
+    if (listed === '') {
+      return { text: 'No skill here is one only you can run.' }
+    }
+    if (question === '') {
+      return { text: listed }
+    }
+
+    const reply = await $.model.complete({
+      model: 'haiku',
+      system: `${ROUTE}\n\n${listed}`,
+      prompt: question,
+      effort: 'low',
+      maxTokens: 300,
+    })
+
+    return { text: reply.isAnswered ? reply.text : `No answer from the model: ${reply.reason}.` }
   })
 }

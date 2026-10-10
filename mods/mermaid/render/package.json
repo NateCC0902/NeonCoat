@@ -3,5 +3,5 @@
   "private": true,
   "type": "module",
   "scripts": { "test": "node --test" },
-  "dependencies": { "beautiful-mermaid": "1.1.3" }
+  "dependencies": { "@mathjax/src": "4.1.3", "beautiful-mermaid": "1.1.3" }
 }

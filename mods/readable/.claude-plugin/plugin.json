@@ -1,5 +1,13 @@
 {
   "name": "readable",
   "version": "0.1.0",
-  "description": "Draws the headings, list markers and rules of a reply in color so its structure reads at a glance (terminal)"
+  "description": "Draws a reply's headings, lists, quotes, callouts, tables and rules in color, and its code fences as cards with a copy button (terminal)",
+  "userConfig": {
+    "enabled": {
+      "type": "boolean",
+      "title": "Enabled",
+      "description": "Turn this mod off without removing it. Takes effect at once.",
+      "default": true
+    }
+  }
 }

@@ -8,10 +8,10 @@ Everything here is live. `~/.claude/settings.json` loads these files straight fr
 
 | Path | What it is | Loaded by, in `~/.claude/settings.json` |
 | --- | --- | --- |
-| `mods/mermaid/` | Draws the `mermaid` code fences of a reply as pictures in the terminal (kitty graphics). `render/` is a Node program the mod runs, with its own `package.json`. | `env.CLAUDE_CODE_PLUGIN_DIRS` |
-| `mods/readable/` | Draws the headings, list markers and rules of a reply in color. | `env.CLAUDE_CODE_PLUGIN_DIRS` |
-| `mods/skill-router/` | Adds a system prompt section listing the skills only the user can run (read from `~/.claude/skills` and `skillOverrides` at load), so Claude names the right `/skill` at the right moment. | `env.CLAUDE_CODE_PLUGIN_DIRS` |
-| `statusline.mjs` | The status line: one Node script, session JSON on stdin, colored rows on stdout. | `statusLine.command`, as an absolute path |
+| `mods/mermaid/` | Draws three kinds of block of a reply as pictures in the terminal (kitty graphics): `mermaid` fences, formulas (`math` fences and `$$` blocks), and local images (`![alt](path)` on a line of its own). The name is older than the last two. Under each picture, one button copies its source (an image's path) and one opens it larger in a pane. `render/` holds the Node scripts the mod runs, one per kind, with their own `package.json`. | `env.CLAUDE_CODE_PLUGIN_DIRS` |
+| `mods/readable/` | Draws a reply's headings, lists (task items as checkboxes), quotes, callouts (`> [!WARNING]`), rules and tables in color, and puts each code fence in a card with a copy button. | `env.CLAUDE_CODE_PLUGIN_DIRS` |
+| `mods/skill-router/` | Adds a system prompt section listing the skills only the user can run (read from `~/.claude/skills` and `skillOverrides` at load), so Claude names the right `/skill` at the right moment. `/skill-router <question>` asks a small model the same thing at once. | `env.CLAUDE_CODE_PLUGIN_DIRS` |
+| `statusline.mjs` | The status line: one Node script, session JSON on stdin, colored rows on stdout. It also reads Claude Code's registry of running sessions (`~/.claude/sessions/`) to say whether the session is under Remote Control. | `statusLine.command`, as an absolute path |
 
 Not in this repo: the theme, `~/.claude/themes/charm.json`. Claude Code reads themes only from that folder. `statusline.mjs` carries a copy of its colors.
 
@@ -21,10 +21,18 @@ Load the `plugin-authoring` skill first: the mod API is early access, and the ty
 
 A new mod is a folder `mods/<name>/` plus its path appended to `env.CLAUDE_CODE_PLUGIN_DIRS`. That value is colon-separated with one entry per mod; a parent folder is not scanned. The mod loads in sessions started after that.
 
+A mod's options are declared under `userConfig` in its `plugin.json` and reach the module as `register(on, options)`. Each one is a row in `/config`, stored under `pluginConfigs` in `~/.claude/settings.json`, and a change reloads the mod with the new values. Every mod here has an `enabled` option, which its `register` checks first.
+
+The engine refuses to load a module that passes `$` to anything but a function declared at the top of the file. A helper that takes `$` cannot be a closure inside `register`.
+
+The mermaid mod draws only what Claude writes in the forms above, and Claude learns those forms from the Diagrams, Math and Images notes in `~/.claude/CLAUDE.md`. The Formatting note there does the same for the forms the readable mod draws only when Claude chooses to write them: alerts, task lists, and a code fence for what the user will copy. Change a form here and there together. That file rides on every request of every session, so it names only what changes how Claude writes: what a mod does by itself (table frames, the copy and zoom buttons) is not listed there.
+
+The mermaid and readable mods both draw a reply (`ui.render` of `AssistantMessage`), and each hands the other the text it does not draw, so either may sit above the other. Two rules keep that true. The readable mod leaves `mermaid` and `math` fences as text. A `Button`'s key comes from what it acts on, not from a count: one reply reaches a mod in several parts, and a count would repeat from part to part.
+
 ## Checks
 
 - A mod: `claude plugin validate mods/<name>`, then `claude plugin test mods/<name>`.
 - A mod's types: `npx -p typescript tsc -p mods/<name>`. This works once the engine has loaded the mod and laid its types.
-- The mermaid renderer: `cd mods/mermaid/render && npm test`. After a fresh clone, run `npm install` there first.
-- The status line: `echo '{}' | node statusline.mjs` exits 0 and prints its rows.
+- The mermaid mod's renderer scripts: `cd mods/mermaid/render && npm test`. After a fresh clone, run `npm install` there first. They need `rsvg-convert` (`brew install librsvg`) and macOS's `sips`.
+- The status line: `echo '{}' | node statusline.mjs` exits 0 and prints its rows, then `node --test statusline.test.mjs`.
 - A mod end to end, in a throwaway session: `claude -p --no-session-persistence --plugin-dir mods/<name> "<a prompt that shows the mod's effect>"`.

@@ -98,3 +98,43 @@ test('a failed read is shown once and tried again on the next prompt', async ($,
   isUnreadable = false
   expect((await compose($)).sections).toHaveLength(2)
 })
+
+test('lists nothing when turned off', { options: { enabled: false } }, async ($, on) => {
+  engine(on)
+
+  expect((await compose($)).sections).toHaveLength(1)
+})
+
+test('/skill-router has a small model pick from the list, or shows the list', async ($, on) => {
+  const asked: { model: string; system?: string; prompt: string }[] = []
+  engine(on)
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('model.complete', (_, e) => {
+    asked.push(e)
+    const usage = {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 0,
+    }
+
+    return { value: { isAnswered: true as const, text: '/grill-me: it tests a plan.', usage } }
+  })
+  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+  const run = (args: string) =>
+    $.command.run({
+      command: 'skill-router',
+      args,
+      origin: { kind: 'composer' },
+      presentation: { isFullscreen: true, columns: 80 },
+    })
+
+  expect((await run('how do I stress-test a plan?')).text).toBe('/grill-me: it tests a plan.')
+  expect(asked).toHaveLength(1)
+  expect(asked[0]).toMatchObject({ model: 'haiku', prompt: 'how do I stress-test a plan?' })
+  expect(asked[0]?.system).toMatch(/\n- \/grill-me: A relentless interview\.\n- \/simplify\n/)
+
+  expect((await run('')).text).toMatch(/^- \/grill-me: A relentless interview\.\n- \/simplify\n- \/tdd: /)
+  expect(asked).toHaveLength(1)
+})

@@ -12,9 +12,13 @@ const RAN = {
   isStderrTruncated: false,
 }
 
-/** Stands for the engine beneath the mod: records the text it is asked to draw. */
+/**
+ * Stands for the engine beneath the mod: a session in /work, and a record of
+ * the text it is asked to draw.
+ */
 const engine = (on: On) => {
   const drawn: string[] = []
+  on('session.cwd', () => ({ value: '/work' }))
   on('ui.render', { component: 'AssistantMessage' }, (_, e) => {
     drawn.push(e.props.text)
 
@@ -81,25 +85,178 @@ test("a fence that did not render stays the engine's own drawing", async ($, on)
   await ui.unmount()
 })
 
-test('a resumed session gets pictures for its last three replies only', async ($, on) => {
-  const source = (name: string) => `flowchart LR\n  ${name} --> Z`
-  const replies = ['old', 'a', 'b', 'c'].map(name => ({
-    role: 'assistant' as const,
-    text: `\`\`\`mermaid\n${source(name)}\n\`\`\``,
-    toolUses: [],
-  }))
+const DIAGRAM = { file: '/tmp/a.png', width: 800, height: 400 }
+const source = (name: string) => `flowchart LR\n  ${name} --> Z`
+
+/**
+ * Stands for a resumed session of four replies, each one diagram, and starts
+ * it; answers the sources the mod rendered, in order.
+ */
+const resume = async ($: Engine, on: On) => {
   const rendered: (string | undefined)[] = []
+  engine(on)
   on('session.messages', () => ({
-    value: [{ role: 'user' as const, text: 'draw them', toolUses: [] }, ...replies],
+    value: [
+      { role: 'user' as const, text: 'draw them', toolUses: [] },
+      ...['old', 'a', 'b', 'c'].map(name => ({
+        role: 'assistant' as const,
+        text: `\`\`\`mermaid\n${source(name)}\n\`\`\``,
+        toolUses: [],
+      })),
+    ],
   }))
   on('process.run', (_, e) => {
     rendered.push(e.init?.stdin)
-    const diagram = { file: '/tmp/a.png', width: 800, height: 400 }
 
-    return { value: { ...RAN, stdout: JSON.stringify(diagram) } }
+    return { value: { ...RAN, stdout: JSON.stringify(DIAGRAM) } }
   })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
 
-  expect(rendered).toEqual(['a', 'b', 'c'].map(source))
+  return rendered
+}
+
+test('a resumed session gets pictures for its last three replies only', async ($, on) => {
+  expect(await resume($, on)).toEqual(['a', 'b', 'c'].map(source))
+})
+
+test('the number of replies redrawn on resume is an option', { options: { resumedReplies: 1 } }, async ($, on) => {
+  expect(await resume($, on)).toEqual([source('c')])
+})
+
+test('zero redraws none', { options: { resumedReplies: 0 } }, async ($, on) => {
+  expect(await resume($, on)).toEqual([])
+})
+
+const MIXED = [
+  'A formula:',
+  '```math\n\\frac{a}{b}\n```',
+  '$$\nE = mc^2\n$$',
+  '![chart](plots/chart.png)',
+  '```mathematica\nPlot[Sin[x], {x, 0, 2 Pi}]\n```',
+  '```md\n![not drawn](inside/a/fence.png)\n```',
+  '![remote](https://example.com/x.png)',
+].join('\n\n')
+
+/** Appends `text` as the model's reply, then draws its row on the terminal. */
+const show = async ($: Engine, text: string) => {
+  await $.session.append({
+    door: 'response',
+    origin: { kind: 'model', model: 'test' },
+    uuid: 'row-mixed',
+    message: { type: 'assistant', role: 'assistant', content: [{ type: 'text', text }] },
+  })
+
+  return $.ui.mount({
+    plugin: 'mermaid',
+    surface: 'terminal',
+    component: 'AssistantMessage',
+    props: { text, isFirstOfReply: true },
+  })
+}
+
+test('formulas and local images are drawn too, each by its own script', async ($, on) => {
+  const ran: [script: string | undefined, stdin: string | undefined, cwd: string | undefined][] = []
+  on('process.run', (_, e) => {
+    ran.push([e.argv[1]?.split('/').at(-1), e.init?.stdin, e.init?.cwd])
+
+    return { value: { ...RAN, stdout: JSON.stringify(DIAGRAM) } }
+  })
+  const drawn = engine(on)
+  const ui = await show($, MIXED)
+
+  expect(ran).toEqual([
+    ['math.mjs', '\\frac{a}{b}', '/work'],
+    ['math.mjs', 'E = mc^2', '/work'],
+    ['picture.mjs', 'plots/chart.png', '/work'],
+  ])
+  expect((await ui.findAll({ type: 'Image' })).map(image => image.props.alt)).toEqual([
+    '\\frac{a}{b}',
+    'E = mc^2',
+    'plots/chart.png',
+  ])
+  // What is not drawn is the engine's, as written: the two fences that only
+  // look like a formula or hold an image, and the remote image.
+  expect(drawn.at(-1)).toBe(MIXED.split('\n\n').slice(-3).join('\n\n'))
+  await ui.unmount()
+})
+
+test('a picture is sized by the cell options', { options: { pxPerColumn: 16, cellAspect: 2 } }, async ($, on) => {
+  on('process.run', () => ({ value: { ...RAN, stdout: JSON.stringify(DIAGRAM) } }))
+  engine(on)
+  const ui = await reply($, 'row-sized')
+
+  // 800 px at 16 px a column is 50 columns, so 12.5 rows on cells twice as
+  // tall as wide: 13 whole rows, and the 52 columns that keep the 2:1 shape.
+  expect((await ui.find({ type: 'Image' }))?.props).toMatchObject({ columns: 52, rows: 13 })
+  await ui.unmount()
+})
+
+test('draws nothing when turned off', { options: { enabled: false } }, async ($, on) => {
+  const drawn = engine(on)
+  const ui = await reply($, 'row-off')
+
+  expect(await ui.find({ type: 'Image' })).toBeUndefined()
+  expect(drawn).toEqual([TEXT])
+  await ui.unmount()
+})
+
+test('a picture has buttons that copy its source and open it in a pane', async ($, on) => {
+  const copied: string[] = []
+  const opened: { id: string; closeOnEscape?: true }[] = []
+  on('ui.copy', (_, e) => {
+    copied.push(e.text)
+
+    return { value: { isCopied: true as const } }
+  })
+  on('ui.toast', () => ({ value: undefined }))
+  on('ui.open', (_, e) => {
+    opened.push(e)
+
+    return { value: { isPlaced: true as const } }
+  })
+  on('process.run', () => {
+    const diagram = { file: '/tmp/a.png', width: 800, height: 400 }
+
+    return { value: { ...RAN, stdout: JSON.stringify(diagram) } }
+  })
+  engine(on)
+  const pane = (bodyColumns: number, bodyRows: number) =>
+    $.ui.mount({
+      plugin: 'mermaid',
+      surface: 'terminal',
+      component: 'Pane',
+      requestId: 'mermaid-zoom',
+      props: {
+        title: 'Picture',
+        isFocused: false,
+        bodyColumns,
+        placement: 'dock',
+        scroll: { offset: 0, bodyRows },
+        view: {},
+      },
+    })
+  const empty = await pane(60, 40)
+  expect(await empty.find({ type: 'Image' })).toBeUndefined()
+  await empty.unmount()
+
+  const ui = await reply($, 'uuid-zoom')
+  const keys = (await ui.findAll({ type: 'Button' })).map(button => String(button.props.key))
+  expect(keys.map(key => key.split(':')[0])).toEqual(['copy', 'zoom'])
+
+  await ui.press({ key: keys[0] ?? '' })
+  expect(copied).toEqual([SOURCE])
+
+  await ui.press({ key: keys[1] ?? '' })
+  expect(opened).toHaveLength(1)
+  expect(opened[0]).toMatchObject({ id: 'mermaid-zoom', closeOnEscape: true })
+
+  // As wide as the pane, or as tall as it when that comes first; 2:1 kept.
+  const wide = await pane(60, 40)
+  expect((await wide.find({ type: 'Image' }))?.props).toMatchObject({ columns: 60, rows: 14 })
+  await wide.unmount()
+  const short = await pane(120, 10)
+  expect((await short.find({ type: 'Image' }))?.props).toMatchObject({ columns: 43, rows: 10 })
+  await short.unmount()
+  await ui.unmount()
 })
