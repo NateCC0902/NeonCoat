@@ -191,7 +191,10 @@ if (input.prompt_cache?.hit_ratio !== undefined) {
 segments.push(git(cwd))
 
 // Whether the session is under Remote Control (open to the phone and the
-// web), said last in the first row; nothing when that cannot be told.
+// web), said last in the first row: a full dot when it is, a hollow one when
+// not, then the name the person gave the session (`/rename`), if they gave
+// one. A title Claude Code made up is left out: it is too long for the row.
+// Nothing when that cannot be told.
 //
 // ponytail: the JSON on stdin does not say. Claude Code's own registry of
 // running sessions does, one file per process, and its format is internal: if
@@ -208,11 +211,12 @@ const remote = () => {
       .filter(session => session.sessionId === input.session_id)
       .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
 
+    const name =
+      mine?.nameSource === 'user' && mine.name ? paint(` - ${mine.name}`, 'dim') : ''
+
     return (
       mine &&
-      (mine.bridgeSessionId
-        ? paint('◉ rc', 'green', true)
-        : paint('○ rc off', 'dim'))
+      (mine.bridgeSessionId ? paint('◉ rc', 'green', true) : paint('○ rc', 'dim')) + name
     )
   } catch {
     return undefined

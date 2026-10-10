@@ -14,22 +14,29 @@ mkdirSync(sessions, { recursive: true })
 const running = (pid, fields) =>
   writeFileSync(join(sessions, `${pid}.json`), JSON.stringify({ pid, ...fields }))
 
-running(1, { sessionId: 'on', updatedAt: 2, bridgeSessionId: 'session_x' })
-running(2, { sessionId: 'off', updatedAt: 2 })
+running(1, {
+  sessionId: 'on',
+  updatedAt: 2,
+  bridgeSessionId: 'session_x',
+  name: 'worker',
+  nameSource: 'user',
+})
+running(2, { sessionId: 'off', updatedAt: 2, name: 'empty-ws-89', nameSource: 'derived' })
 // An earlier, crashed run of `off`, left behind with Remote Control on.
 running(3, { sessionId: 'off', updatedAt: 1, bridgeSessionId: 'session_y' })
 
 /** The rows drawn for a session, their colors taken out. */
 const draw = sessionId =>
   execFileSync('node', [fileURLToPath(new URL('./statusline.mjs', import.meta.url))], {
-    input: JSON.stringify({ session_id: sessionId }),
+    input: JSON.stringify({ session_id: sessionId, session_name: 'A title made up' }),
     env: { ...process.env, HOME: home, TMPDIR: home },
     encoding: 'utf8',
   }).replace(/\x1b\[[\d;]*m/g, '')
 
 test('says whether the session is under Remote Control, or nothing when it cannot tell', () => {
-  // Last in the first row.
-  assert.match(draw('on'), /│ {2}◉ rc$/m)
-  assert.match(draw('off'), /│ {2}○ rc off$/m)
+  // Last in the first row; after it the name the person gave, never a
+  // derived one or a title.
+  assert.match(draw('on'), /│ {2}◉ rc - worker$/m)
+  assert.match(draw('off'), /│ {2}○ rc$/m)
   assert.doesNotMatch(draw('not-running'), /[◉○] rc/)
 })
