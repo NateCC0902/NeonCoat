@@ -28,7 +28,8 @@ const draw = sessionId =>
   }).replace(/\x1b\[[\d;]*m/g, '')
 
 test('says whether the session is under Remote Control, or nothing when it cannot tell', () => {
-  assert.match(draw('on'), /◉ remote(?! off)/)
-  assert.match(draw('off'), /○ remote off/)
-  assert.doesNotMatch(draw('not-running'), /[◉○] remote/)
+  // First of all in the first row.
+  assert.match(draw('on'), /^◉ rc {2}│/)
+  assert.match(draw('off'), /^○ rc off {2}│/)
+  assert.doesNotMatch(draw('not-running'), /[◉○] rc/)
 })
