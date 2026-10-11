@@ -8,7 +8,7 @@ Everything here is live. `~/.claude/settings.json` loads these files straight fr
 
 | Path | What it is | Loaded by, in `~/.claude/settings.json` |
 | --- | --- | --- |
-| `mods/reply-pictures/` | Draws three kinds of block of a reply as pictures in the terminal (kitty graphics): `mermaid` fences, formulas (`math` fences and `$$` blocks), and local images (`![alt](path)` on a line of its own). Under each picture, one button copies its source (an image's path) and one opens it larger in a pane. `render/` holds the Node scripts the mod runs, one per kind, with their own `package.json`. | `env.CLAUDE_CODE_PLUGIN_DIRS` |
+| `mods/reply-media/` | Draws three kinds of block of a reply as pictures in the terminal (kitty graphics): `mermaid` fences, formulas (`math` fences and `$$` blocks), and local images (`![alt](path)` on a line of its own). A local video written as an image (mp4, m4v, mov, webm, mkv, gif) is drawn as its first frame with a play button: `ffmpeg` cuts it into frames at the first play, the mod swaps them in place, and `open` hands the clip to the system's player. A block that fails to draw is boxed in the error color, with the reason its script gave. Under each picture, one button copies its source (an image's path) and one opens it larger in a pane. `render/` holds the Node scripts the mod runs, one per kind, with their own `package.json`. | `env.CLAUDE_CODE_PLUGIN_DIRS` |
 | `mods/reply-markdown/` | Draws a reply's headings, lists (task items as checkboxes), quotes, callouts (`> [!WARNING]`), rules and tables in color, and puts each code fence in a card with a copy button. | `env.CLAUDE_CODE_PLUGIN_DIRS` |
 | `mods/skill-router/` | `/skill-router <question>` asks a small model which of the skills only the user can run fits the question (read from `~/.claude/skills` and `skillOverrides` on each run); with no question it lists them. It adds nothing to the system prompt. | `env.CLAUDE_CODE_PLUGIN_DIRS` |
 | `statusline.mjs` | The status line: one Node script, session JSON on stdin, colored rows on stdout. It also reads Claude Code's registry of running sessions (`~/.claude/sessions/`) to say whether the session is under Remote Control and what the other sessions are doing. | `statusLine.command`, as an absolute path |
@@ -25,7 +25,7 @@ A mod's options are declared under `userConfig` in its `plugin.json` and reach t
 
 The engine refuses to load a module that passes `$` to anything but a function declared at the top of the file. A helper that takes `$` cannot be a closure inside `register`.
 
-The reply-pictures mod draws only what Claude writes in the forms above, and Claude learns those forms from the Diagrams, Math and Images notes in `~/.claude/CLAUDE.md`. The Formatting note there does the same for the forms the reply-markdown mod draws only when Claude chooses to write them: alerts, task lists, and a code fence for what the user will copy. Change a form here and there together. That file rides on every request of every session, so it names only what changes how Claude writes: what a mod does by itself (table frames, the copy and zoom buttons) is not listed there.
+The reply-media mod draws only what Claude writes in the forms above, and Claude learns those forms from the Diagrams, Math and Images notes in `~/.claude/CLAUDE.md`. The Formatting note there does the same for the forms the reply-markdown mod draws only when Claude chooses to write them: alerts, task lists, and a code fence for what the user will copy. Change a form here and there together. That file rides on every request of every session, so it names only what changes how Claude writes: what a mod does by itself (table frames, the copy and zoom buttons) is not listed there.
 
 The two `reply-` mods both draw a reply (`ui.render` of `AssistantMessage`), and each hands the other the text it does not draw, so either may sit above the other. Two rules keep that true. The reply-markdown mod leaves `mermaid` and `math` fences as text. A `Button`'s key comes from what it acts on, not from a count: one reply reaches a mod in several parts, and a count would repeat from part to part.
 
@@ -33,6 +33,6 @@ The two `reply-` mods both draw a reply (`ui.render` of `AssistantMessage`), and
 
 - A mod: `claude plugin validate mods/<name>`, then `claude plugin test mods/<name>`.
 - A mod's types: `npx -p typescript tsc -p mods/<name>`. This works once the engine has loaded the mod and laid its types.
-- The reply-pictures mod's renderer scripts: `cd mods/reply-pictures/render && npm test`. After a fresh clone, run `npm install` there first. They need `rsvg-convert` (`brew install librsvg`) and macOS's `sips`.
+- The reply-media mod's renderer scripts: `cd mods/reply-media/render && npm test`. After a fresh clone, run `npm install` there first. They need `rsvg-convert` (`brew install librsvg`), `ffmpeg` (`brew install ffmpeg`) and macOS's `sips`.
 - The status line: `echo '{}' | node statusline.mjs` exits 0 and prints its rows, then `node --test statusline.test.mjs`.
 - A mod end to end, in a throwaway session: `claude -p --no-session-persistence --plugin-dir mods/<name> "<a prompt that shows the mod's effect>"`.

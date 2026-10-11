@@ -1,7 +1,7 @@
 // Usage: node picture.mjs < path.txt
 // Prints {"file","width","height"} for the image file at a path: absolute,
 // under ~/ or relative to the working directory. A PNG is used as it is; any
-// other is drawn as <tmp>/claude-reply-pictures/<sha1>.png, by `sips` (macOS)
+// other is drawn as <tmp>/claude-reply-media/<sha1>.png, by `sips` (macOS)
 // or, for an SVG, `rsvg-convert` (brew install librsvg). The size is in the
 // picture's own px: the PNG's, or the SVG's.
 import { spawnSync } from 'node:child_process'
@@ -34,7 +34,7 @@ let zoom = 1
 // Told by its signature, not its extension: the terminal reads `file` as a
 // PNG whatever it is called.
 if (header(path).toString('latin1', 0, 8) !== '\x89PNG\r\n\x1a\n') {
-  const dir = join(tmpdir(), 'claude-reply-pictures')
+  const dir = join(tmpdir(), 'claude-reply-media')
   mkdirSync(dir, { recursive: true })
   const isSvg = /\.svgz?$/i.test(path)
   zoom = isSvg ? ZOOM : 1

@@ -1,7 +1,7 @@
 {
-  "name": "reply-pictures",
+  "name": "reply-media",
   "version": "0.1.0",
-  "description": "Draws the mermaid fences, math formulas and local images of a reply as pictures in the terminal (kitty graphics: Ghostty, kitty)",
+  "description": "Draws the mermaid fences, math formulas and local images of a reply as pictures in the terminal, and plays its local videos (kitty graphics: Ghostty, kitty)",
   "types": "./types/index.d.ts",
   "userConfig": {
     "enabled": {

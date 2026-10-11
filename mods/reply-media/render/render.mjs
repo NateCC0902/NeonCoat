@@ -1,5 +1,5 @@
 // Usage: node render.mjs < diagram.mmd
-// Writes <tmp>/claude-reply-pictures/<sha1>.png and prints {"file","width","height"},
+// Writes <tmp>/claude-reply-media/<sha1>.png and prints {"file","width","height"},
 // the size in CSS px. Needs `rsvg-convert` (brew install librsvg) on PATH.
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -84,9 +84,9 @@ export function flatten(svg) {
   return (out + svg.slice(from)).replace(/@import url\('[^']*'\);/g, '')
 }
 
-/** Draws `svg` as <tmp>/claude-reply-pictures/<sha1 of key>.png and prints its line. */
+/** Draws `svg` as <tmp>/claude-reply-media/<sha1 of key>.png and prints its line. */
 export function rasterize(svg, key) {
-  const dir = join(tmpdir(), 'claude-reply-pictures')
+  const dir = join(tmpdir(), 'claude-reply-media')
   mkdirSync(dir, { recursive: true })
   const file = join(dir, createHash('sha1').update(key).digest('hex') + '.png')
   const png = spawnSync('rsvg-convert', ['--zoom', String(ZOOM), '--output', file], { input: svg })

@@ -1,5 +1,5 @@
 {
-  "name": "reply-pictures-render",
+  "name": "reply-media-render",
   "private": true,
   "type": "module",
   "scripts": { "test": "node --test" },

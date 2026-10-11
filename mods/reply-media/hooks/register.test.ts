@@ -1,9 +1,10 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 const SOURCE = 'flowchart LR\n  A --> B'
 const TEXT = `Before\n\n\`\`\`mermaid\n${SOURCE}\n\`\`\`\n\nAfter`
+const DIAGRAM = { file: '/tmp/a.png', width: 800, height: 400 }
 const RAN = {
   exitCode: 0,
   stdout: '',
@@ -42,7 +43,7 @@ const reply = async ($: Engine, uuid: string) => {
   })
 
   return $.ui.mount({
-    plugin: 'reply-pictures',
+    plugin: 'reply-media',
     surface: 'terminal',
     component: 'AssistantMessage',
     props: { text: TEXT, isFirstOfReply: true },
@@ -73,19 +74,49 @@ test('a mermaid fence of a reply is drawn as an Image once rendered', async ($, 
   await ui.unmount()
 })
 
-test("a fence that did not render stays the engine's own drawing", async ($, on) => {
-  on('process.run', () => ({
-    value: { ...RAN, exitCode: 1, stderr: 'bad diagram' },
-  }))
+test('a fence that did not render is boxed in the error color, with its reason', async ($, on) => {
+  // What node writes when a script throws: where, then the error, then its
+  // stack. Two `Error:` when the tool the script ran says it too, as sips does.
+  const stderr =
+    'file:///mod/render/render.mjs:102\n  rasterize(\n  ^\n\nError: Error: bad diagram\n    at file:///mod/render/render.mjs:102:3\n'
+  on('process.run', () => ({ value: { ...RAN, exitCode: 1, stderr } }))
   const drawn = engine(on)
   const ui = await reply($, 'row-2')
 
   expect(await ui.find({ type: 'Image' })).toBeUndefined()
-  expect(drawn).toEqual([TEXT])
+  expect(drawn).toEqual(['Before', 'After'])
+  expect((await ui.find({ type: 'Text', text: /^✗ not drawn: bad diagram$/ }))?.props).toMatchObject({
+    color: 'error',
+  })
+  expect((await ui.findAll({ type: 'Box' })).some(box => box.props.borderColor === 'error')).toBe(true)
+  expect(await ui.find({ type: 'Text', text: SOURCE })).toBeDefined()
   await ui.unmount()
 })
 
-const DIAGRAM = { file: '/tmp/a.png', width: 800, height: 400 }
+test('a picture whose file was swept is drawn again from its block', async ($, on) => {
+  const clock = mock.clock(on)
+  let ran = 0
+  on('process.run', () => {
+    // The reply's own render, then the one that makes the swept picture again.
+    ran += 1
+    const file = ran === 1 ? '/tmp/swept.png' : '/tmp/again.png'
+
+    return { value: { ...RAN, stdout: JSON.stringify({ ...DIAGRAM, file }) } }
+  })
+  on('fs.stat', (_, e) =>
+    e.path === '/tmp/swept.png'
+      ? { deny: 'ENOENT' }
+      : { value: { kind: 'file' as const, size: 1, mtimeMs: 0, isLink: false } },
+  )
+  engine(on)
+  const ui = await reply($, 'row-swept')
+  await clock.settle()
+
+  expect(ran).toBe(2)
+  expect((await ui.find({ type: 'Image' }))?.props.source).toMatchObject({ file: '/tmp/again.png' })
+  await ui.unmount()
+})
+
 const source = (name: string) => `flowchart LR\n  ${name} --> Z`
 
 /**
@@ -148,7 +179,7 @@ const show = async ($: Engine, text: string) => {
   })
 
   return $.ui.mount({
-    plugin: 'reply-pictures',
+    plugin: 'reply-media',
     surface: 'terminal',
     component: 'AssistantMessage',
     props: { text, isFirstOfReply: true },
@@ -223,7 +254,7 @@ test('a picture has buttons that copy its source and open it in a pane', async (
   engine(on)
   const pane = (bodyColumns: number, bodyRows: number) =>
     $.ui.mount({
-      plugin: 'reply-pictures',
+      plugin: 'reply-media',
       surface: 'terminal',
       component: 'Pane',
       requestId: 'picture-zoom',
@@ -258,5 +289,71 @@ test('a picture has buttons that copy its source and open it in a pane', async (
   const short = await pane(120, 10)
   expect((await short.find({ type: 'Image' }))?.props).toMatchObject({ columns: 43, rows: 10 })
   await short.unmount()
+  await ui.unmount()
+})
+
+test('a video is drawn as its first frame, and plays frame by frame once it is cut', async ($, on) => {
+  const clock = mock.clock(on)
+  const ran: (string | undefined)[][] = []
+  const swapped: string[] = []
+  on('process.run', (_, e) => {
+    ran.push([e.argv[1]?.split('/').at(-1), ...e.argv.slice(2), e.init?.stdin])
+    const printed =
+      e.argv[2] === 'frames'
+        ? { dir: '/tmp/clip', count: 3, fps: 10 }
+        : { file: '/tmp/clip/f00001.png', width: 960, height: 540, clip: '/work/demo.mp4' }
+
+    return { value: { ...RAN, stdout: JSON.stringify(printed) } }
+  })
+  on('ui.toast', () => ({ value: undefined }))
+  on('ui.blit', (_, e) => {
+    swapped.push('source' in e && 'file' in e.source ? `${e.requestId} ${e.source.file}` : '')
+
+    return { value: {} }
+  })
+  engine(on)
+  const text = 'A recording:\n\n![demo](demo.mp4)'
+  await $.session.append({
+    door: 'response',
+    origin: { kind: 'model', model: 'test' },
+    uuid: 'row-video',
+    message: { type: 'assistant', role: 'assistant', content: [{ type: 'text', text }] },
+  })
+  const ui = await $.ui.mount({
+    plugin: 'reply-media',
+    surface: 'terminal',
+    component: 'AssistantMessage',
+    requestId: 'row-video',
+    props: { text, isFirstOfReply: true },
+  })
+  const buttons = async () => (await ui.findAll({ type: 'Button' })).map(button => button.props)
+  const play = String((await buttons())[0]?.key)
+
+  // Only the first frame is made for the reply: the cut waits for a play.
+  expect(ran).toEqual([['video.mjs', 'demo.mp4']])
+  expect((await ui.find({ type: 'Image' }))?.props.source).toMatchObject({ file: '/tmp/clip/f00001.png' })
+  expect((await buttons()).map(button => button.label)).toEqual(['▶ play', 'copy path', 'open'])
+
+  await ui.press({ key: play })
+  expect(ran.at(-1)).toEqual(['video.mjs', 'frames', '/work/demo.mp4'])
+  expect((await buttons())[0]?.label).toBe('❚❚ pause')
+
+  // Three frames at ten a second, then it stops by itself.
+  await clock.advance(300)
+  expect(swapped).toEqual([1, 2, 3].map(frame => `row-video /tmp/clip/f0000${frame}.png`))
+  expect((await buttons())[0]?.label).toBe('▶ play')
+
+  // Played again from the start, without a second cut; a press pauses it,
+  // and the next one goes on from the frame it stopped at.
+  await ui.press({ key: play })
+  await clock.advance(200)
+  await ui.press({ key: play })
+  await clock.advance(300)
+  expect(swapped.slice(3)).toEqual([1, 2].map(frame => `row-video /tmp/clip/f0000${frame}.png`))
+  expect((await ui.find({ type: 'Image' }))?.props.source).toMatchObject({ file: '/tmp/clip/f00002.png' })
+  await ui.press({ key: play })
+  await clock.advance(200)
+  expect(swapped.slice(5)).toEqual([2, 3].map(frame => `row-video /tmp/clip/f0000${frame}.png`))
+  expect(ran).toHaveLength(2)
   await ui.unmount()
 })
