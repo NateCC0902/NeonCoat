@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
-import type { On, PromptComposeTrait } from 'claude-code'
+import type { On } from 'claude-code'
 
 const SKILLS = '/home/u/.claude/skills'
 const LONG = 'Test-first. '.repeat(20).trim()
@@ -49,67 +49,47 @@ const engine = (
   }))
 }
 
-const compose = ($: Engine, traits: PromptComposeTrait[] = []) =>
+const compose = ($: Engine) =>
   $.prompt.compose({
     model: 'claude-opus-5-5',
     promptModel: 'claude-opus-5-5',
     surfaces: ['terminal'],
     tools: [],
     outputStyle: null,
-    traits,
+    traits: [],
   })
 
-test('lists the skills only the user can run, last in the prompt', async ($, on) => {
-  engine(on)
-  const { sections } = await compose($)
-  const rows = sections.at(-1)?.text.split('\n').filter(line => line.startsWith('- /'))
+/** Starts a session, and records the commands the mod registers in it. */
+const start = async ($: Engine, on: On) => {
+  const registered: string[] = []
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', (_, e) => {
+    registered.push(e.name)
 
-  expect(sections.map(section => section.id)).toEqual(['intro', 'skill-router:index'])
-  expect(sections.at(-1)?.scope).toBe('session')
-  expect(rows).toEqual([
-    '- /grill-me: A relentless interview.',
-    '- /simplify',
-    `- /tdd: ${LONG.slice(0, 120).trimEnd()}…`,
-  ])
-})
-
-test('adds nothing to a bare prompt, or when no skill is user-only', async ($, on) => {
-  engine(on, { 'grill-me': 'off', retired: 'off' })
-
-  expect((await compose($, ['bare'])).sections).toHaveLength(1)
-  expect((await compose($)).sections).toHaveLength(1)
-})
-
-test('a failed read is shown once and tried again on the next prompt', async ($, on) => {
-  let isUnreadable = true
-  const logged: string[] = []
-  on('ui.log', (_, e) => {
-    logged.push(e.text)
-
-    return { value: undefined }
+    return { value: { command: e.name } }
   })
-  engine(on, OVERRIDES, () => isUnreadable)
+  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
 
-  expect((await compose($)).sections).toHaveLength(1)
-  expect((await compose($)).sections).toHaveLength(1)
-  expect(logged).toHaveLength(1)
-  expect(logged[0]).toMatch(/^skill-router: .*EACCES/)
+  return registered
+}
 
-  isUnreadable = false
-  expect((await compose($)).sections).toHaveLength(2)
-})
+const run = ($: Engine, args: string) =>
+  $.command.run({
+    command: 'skill-router',
+    args,
+    origin: { kind: 'composer' },
+    presentation: { isFullscreen: true, columns: 80 },
+  })
 
-test('lists nothing when turned off', { options: { enabled: false } }, async ($, on) => {
+test('adds nothing to the system prompt', async ($, on) => {
   engine(on)
 
-  expect((await compose($)).sections).toHaveLength(1)
+  expect((await compose($)).sections.map(section => section.id)).toEqual(['intro'])
 })
 
 test('/skill-router has a small model pick from the list, or shows the list', async ($, on) => {
   const asked: { model: string; system?: string; prompt: string }[] = []
   engine(on)
-  on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('command.register', (_, e) => ({ value: { command: e.name } }))
   on('model.complete', (_, e) => {
     asked.push(e)
     const usage = {
@@ -121,20 +101,41 @@ test('/skill-router has a small model pick from the list, or shows the list', as
 
     return { value: { isAnswered: true as const, text: '/grill-me: it tests a plan.', usage } }
   })
-  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
-  const run = (args: string) =>
-    $.command.run({
-      command: 'skill-router',
-      args,
-      origin: { kind: 'composer' },
-      presentation: { isFullscreen: true, columns: 80 },
-    })
+  await start($, on)
 
-  expect((await run('how do I stress-test a plan?')).text).toBe('/grill-me: it tests a plan.')
+  expect((await run($, 'how do I stress-test a plan?')).text).toBe('/grill-me: it tests a plan.')
   expect(asked).toHaveLength(1)
   expect(asked[0]).toMatchObject({ model: 'haiku', prompt: 'how do I stress-test a plan?' })
   expect(asked[0]?.system).toMatch(/\n- \/grill-me: A relentless interview\.\n- \/simplify\n/)
 
-  expect((await run('')).text).toMatch(/^- \/grill-me: A relentless interview\.\n- \/simplify\n- \/tdd: /)
+  expect((await run($, '')).text?.split('\n')).toEqual([
+    '- /grill-me: A relentless interview.',
+    '- /simplify',
+    `- /tdd: ${LONG.slice(0, 120).trimEnd()}…`,
+  ])
   expect(asked).toHaveLength(1)
+})
+
+test('says so when no skill is user-only', async ($, on) => {
+  engine(on, { 'grill-me': 'off', retired: 'off' })
+  await start($, on)
+
+  expect((await run($, '')).text).toBe('No skill here is one only you can run.')
+})
+
+test('a failed read is told in the answer, and the next run reads again', async ($, on) => {
+  let isUnreadable = true
+  engine(on, OVERRIDES, () => isUnreadable)
+  await start($, on)
+
+  expect((await run($, '')).text).toMatch(/^Reading your skills failed: .*EACCES/)
+
+  isUnreadable = false
+  expect((await run($, '')).text).toMatch(/^- \/grill-me: /)
+})
+
+test('registers no command when turned off', { options: { enabled: false } }, async ($, on) => {
+  engine(on)
+
+  expect(await start($, on)).toEqual([])
 })
