@@ -74,7 +74,6 @@ Draw diagrams in replies as ```mermaid code fences, never as ASCII art. The repl
 Use only these types, the rest do not render: flowchart, stateDiagram-v2, sequenceDiagram, classDiagram, erDiagram, xychart-beta.
 Start the fence at column 0: an indented fence (inside a list item or a quote) is not picked up.
 Prefer flowchart LR: a TD chart with more than a few nodes fills the terminal's height.
-For a flowchart with a cycle, declare the node the back-edge leaves from on a line of its own before any edge (e.g. `T{test}`), or the layout draws that node above the one before it.
 Directory trees and tables are not diagrams: keep them as text.
 
 Math:

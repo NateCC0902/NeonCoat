@@ -4,11 +4,10 @@
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync } from 'node:fs'
+import { registerHooks } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-
-import { renderMermaidSVG } from 'beautiful-mermaid'
 
 // Charmtone, the same colors as ~/.claude/themes/charm.json.
 export const THEME = {
@@ -97,7 +96,29 @@ export function rasterize(svg, key) {
   console.log(JSON.stringify({ file, width, height }))
 }
 
+const ORDER = '"elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",'
+
+/**
+ * A module load hook: beautiful-mermaid with ELK's DFS_NODE_ORDER cycle
+ * breaker. ELK's default may draw the node a loop goes back from before the
+ * node it goes back to (a retry loop as start → ok? → try); walking the graph
+ * from the node written first, a loop is drawn the way it reads, also one that
+ * returns to that first node.
+ */
+// shortcut: patches beautiful-mermaid 1.1.3's built file by text; a version
+// without that line loads unpatched, which render.test.mjs catches.
+export function withModelOrder(url, context, nextLoad) {
+  const loaded = nextLoad(url, context)
+  if (!url.endsWith('/beautiful-mermaid/dist/index.js')) return loaded
+  const source = String(loaded.source).replace(ORDER, `${ORDER} "elk.layered.cycleBreaking.strategy": "DFS_NODE_ORDER",`)
+  return { ...loaded, source }
+}
+
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  // Loaded here, not imported above: the hook must be in place first, and
+  // math.mjs, which imports this file, needs no mermaid.
+  registerHooks({ load: withModelOrder })
+  const { renderMermaidSVG } = await import('beautiful-mermaid')
   const source = readFileSync(0, 'utf8')
   // Named by theme and source, so a restyle never shows a picture drawn before it.
   rasterize(flatten(renderMermaidSVG(source, THEME)), JSON.stringify(THEME) + source)
