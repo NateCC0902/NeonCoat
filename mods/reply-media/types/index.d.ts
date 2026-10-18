@@ -2,11 +2,19 @@
 export type Frames = { dir: string; count: number; fps: number }
 
 /**
- * A rendered picture: the PNG's absolute path and its size in CSS px. A video's
- * is its first frame, with the clip's own absolute path, and its frames once
- * it was played.
+ * A rendered picture: the PNG's absolute path and its size in CSS px. An
+ * image's has the absolute path of the file it was drawn from. A video's is its
+ * first frame, with the clip's own absolute path, and its frames once it was
+ * played.
  */
-export type Diagram = { file: string; width: number; height: number; clip?: string; frames?: Frames }
+export type Diagram = {
+  file: string
+  width: number
+  height: number
+  path?: string
+  clip?: string
+  frames?: Frames
+}
 
 /** Why a block has no picture: the reason its renderer script gave. */
 export type Failure = { error: string }

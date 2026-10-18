@@ -23,7 +23,7 @@ const picture = path =>
 test('picture passes a PNG through as it is', () => {
   const line = JSON.parse(picture(' a.png\n').stdout)
 
-  assert.deepEqual(line, { file: join(dir, 'a.png'), width: 12, height: 8 })
+  assert.deepEqual(line, { file: join(dir, 'a.png'), width: 12, height: 8, path: join(dir, 'a.png') })
 })
 
 // A JPEG becomes a PNG of its own pixels; an SVG, having none, one three

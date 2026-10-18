@@ -353,7 +353,7 @@ export const register: Register = (on, options) => {
         continue
       }
 
-      const { file, width, height, clip, frames } = piece.diagram
+      const { file, width, height, path, clip, frames } = piece.diagram
       const widest = Math.min(room, 255)
       const natural = Math.min(widest, Math.ceil(width / pxPerColumn))
       // Whole rows first, then the columns that keep the picture's shape: a
@@ -394,7 +394,9 @@ export const register: Register = (on, options) => {
               plain
               dimColor
               onPress={async press => {
-                const copied = await $.ui.copy({ text: alt, surface: press.surface })
+                // A file by the absolute path its script opened, not as written.
+                const text = piece.isFile ? (path ?? clip ?? alt) : alt
+                const copied = await $.ui.copy({ text, surface: press.surface })
                 $.ui.toast(copied.isCopied ? 'Copied' : `Not copied: ${copied.reason}`)
               }}
             />

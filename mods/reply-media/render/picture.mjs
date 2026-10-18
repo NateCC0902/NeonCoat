@@ -1,6 +1,7 @@
 // Usage: node picture.mjs < path.txt
-// Prints {"file","width","height"} for the image file at a path: absolute,
-// under ~/ or relative to the working directory. A PNG is used as it is; any
+// Prints {"file","width","height","path"} for the image file at a path:
+// absolute, under ~/ or relative to the working directory; "path" is it made
+// absolute. A PNG is used as it is; any
 // other is drawn as <tmp>/claude-reply-media/<sha1>.png, by `sips` (macOS)
 // or, for an SVG, `rsvg-convert` (brew install librsvg). The size is in the
 // picture's own px: the PNG's, or the SVG's.
@@ -54,5 +55,6 @@ console.log(
     file,
     width: ihdr.readUInt32BE(16) / zoom,
     height: ihdr.readUInt32BE(20) / zoom,
+    path,
   }),
 )
