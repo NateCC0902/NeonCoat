@@ -25,7 +25,7 @@ The five callouts:
 
 A table, a task list, and a code fence as a card with its copy button:
 
-<img src="docs/markdown-blocks.png" width="830" alt="A framed table, a task list with two items ticked, and a TypeScript snippet in a card with a copy button">
+<img src="docs/markdown-blocks.png" width="830" alt="A table ruled under its header and between its rows, a task list with two items ticked, and a TypeScript snippet in a card with a copy button">
 
 ## Requirements
 
