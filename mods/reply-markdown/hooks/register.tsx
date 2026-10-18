@@ -10,9 +10,23 @@ const COLOR = {
   bullet: '#00ffb2',
   number: '#e8fe96',
   rule: '#605f6b',
+  // A `rules` table's line under its header (Squid), and the faint one
+  // between its rows (Iron, the theme's prompt border).
+  headRule: '#858392',
+  rowRule: '#4d4c57',
   quote: '#ff60ff',
   ink: '#e8fe96',
 } as const
+// What Claude reads in its system prompt, so that it writes the forms the mod
+// draws only when Claude chooses to.
+const FORMS = [
+  'Formatting:',
+  '',
+  'The reply-markdown mod draws these forms in the terminal, so use them where they fit.',
+  'For a warning or a note the user must not miss, write a GitHub alert: a quote whose first line is `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]` or `[!CAUTION]`. It becomes a colored box.',
+  'For steps or checks to tick off, write a task list: `- [ ]` and `- [x]`.',
+  'Put a command or snippet the user will copy in a code fence of its own, with its language, not in inline code: the fence gets a copy button.',
+].join('\n')
 // GitHub's five alerts, `> [!NOTE]` and the rest, in the palette's hues.
 const CALLOUT: Record<string, { label: string; color: string }> = {
   NOTE: { label: 'Note', color: '#00a4ff' },
@@ -29,7 +43,8 @@ const bar = (glyph: string) => Array(200).fill(glyph).join('\n')
 const BAR = bar('│')
 // A table's frame by border style, under the names the engine's own Box
 // takes: the corners and joints of its three edges, then its two lines.
-// Thick lines have square corners only: Unicode has no heavy arc.
+// Thick lines have square corners only: Unicode has no heavy arc. `rules`,
+// the default, has no frame: a line under the header and between the rows.
 const FRAME: Record<string, { edges: [string, string, string]; line: string; bar: string }> = {
   round: { edges: ['╭┬╮', '├┼┤', '╰┴╯'], line: '─', bar: '│' },
   single: { edges: ['┌┬┐', '├┼┤', '└┴┘'], line: '─', bar: '│' },
@@ -49,8 +64,12 @@ type Align = 'flex-start' | 'center' | 'flex-end'
 
 const FENCE = /^\s*(`{3,}|~{3,})/
 // The fences the reply-media mod draws as pictures: left as text, so that it
-// gets them whichever of the two mods sits above the other.
+// gets them whichever of the two mods sits above the other. It reads fences of
+// three backticks only; a `~~~` or longer one is code here.
 const PICTURED = /^(mermaid|math)$/
+// A `$$` formula's first and last line, as the reply-media mod reads them: the
+// lines between are kept as text too, though one may look like a list item.
+const FORMULA = /^\$\$[ \t]*$/
 const RULE = /^ {0,3}([-*_])( *\1){2,} *$/
 const HEADING = /^(#{1,6})\s+(.+?)[\s#]*$/
 const ITEM = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/
@@ -146,11 +165,11 @@ function parse(text: string): Block[] {
     if (fence !== undefined) {
       keep(line)
       // Closed by a run of the same character at least as long, alone on its line.
-      const run = FENCE.exec(line)?.[1] ?? ''
+      const run = FENCE.exec(line)?.[1] ?? (FORMULA.test(line) ? '$$' : '')
       const isClose = run[0] === fence[0] && run.length >= fence.length && line.trim() === run
       const [open = '', ...body] = raw.slice(0, -1)
       const language = open.trim().slice(fence.length).trim().split(/\s+/)[0] ?? ''
-      if (isClose && !PICTURED.test(language)) {
+      if (isClose && fence !== '$$' && !(fence === '```' && PICTURED.test(language))) {
         // A fence still open when the text ends (a reply mid-stream) stays
         // raw: `raw` holds it from its opening line on.
         const indent = open.length - open.trimStart().length
@@ -163,10 +182,10 @@ function parse(text: string): Block[] {
         raw = []
       }
       fence = isClose ? undefined : fence
-    } else if (FENCE.test(line)) {
+    } else if (FENCE.test(line) || FORMULA.test(line)) {
       flush()
       keep(line)
-      fence = FENCE.exec(line)?.[1]
+      fence = FENCE.exec(line)?.[1] ?? '$$'
     } else if (
       line.includes('|') &&
       DELIMITER.test(below) &&
@@ -225,9 +244,21 @@ export const register: Register = (on, options) => {
     return
   }
 
-  // A style the settings do not hold, or one the mod does not draw, is the default.
-  const frame = FRAME[String(options.tableBorder)] ?? FRAME.bold!
+  // A style the settings do not hold, or one the mod does not draw, is the
+  // default: for a table, no frame (`rules`).
+  const frame = FRAME[String(options.tableBorder)]
   const cardBorder = String(options.cardBorder) in FRAME ? String(options.cardBorder) : 'round'
+
+  // Told where a reply is drawn on a terminal. `-p` draws nowhere but is told
+  // too, so that it shows what Claude writes.
+  on('prompt.compose', async ($, e, next) => {
+    const composed = await next(e)
+    const isDrawn = e.surfaces.length === 0 || e.surfaces.includes('terminal')
+
+    return isDrawn
+      ? { sections: [...composed.sections, { id: 'reply-markdown:forms', text: FORMS, scope: 'session' }] }
+      : composed
+  })
 
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
     if (e.surface !== 'terminal' || e.props.isSummary) {
@@ -295,23 +326,26 @@ export const register: Register = (on, options) => {
 
         // The frame is drawn as text, so that its lines meet in the right
         // glyphs; a bar spans its row's height however the cells wrap.
-        const upright = bar(frame.bar)
-        const edge = ([left = '', cross = '', right = '']: string) => (
-          <Text color={COLOR.rule} wrap="truncate-end">
-            {left + widths.map(each => frame.line.repeat(each + 2)).join(cross) + right}
+        const upright = frame && bar(frame.bar)
+        const rule = (text: string, color: string) => (
+          <Text color={color} wrap="truncate-end">
+            {text}
           </Text>
         )
+        const edge = ([left = '', cross = '', right = '']: string, line: string) =>
+          rule(left + widths.map(each => line.repeat(each + 2)).join(cross) + right, COLOR.rule)
         const offsets = widths.map((_, column) =>
           widths.slice(0, column).reduce((sum, each) => sum + each + 3, 0),
         )
         const total = widths.reduce((sum, each) => sum + each + 3, 1)
         const row = (texts: string[], isHeader: boolean) => (
           <Box flexDirection="row" width={total}>
-            {[...offsets, total - 1].map(left => (
-              <Box position="absolute" top={0} bottom={0} left={left} width={1} overflow="hidden">
-                <Text color={COLOR.rule}>{upright}</Text>
-              </Box>
-            ))}
+            {upright &&
+              [...offsets, total - 1].map(left => (
+                <Box position="absolute" top={0} bottom={0} left={left} width={1} overflow="hidden">
+                  <Text color={COLOR.rule}>{upright}</Text>
+                </Box>
+              ))}
             {widths.map((each, column) => (
               <Box
                 flexDirection="column"
@@ -331,13 +365,24 @@ export const register: Register = (on, options) => {
             ))}
           </Box>
         )
+        const body = block.rows.map(texts => row(texts, false))
         rows.push(
           <Box flexDirection="column" marginTop={marginTop}>
-            {edge(frame.edges[0])}
-            {row(block.header, true)}
-            {edge(frame.edges[1])}
-            {block.rows.map(texts => row(texts, false))}
-            {edge(frame.edges[2])}
+            {frame
+              ? [
+                  edge(frame.edges[0], frame.line),
+                  row(block.header, true),
+                  edge(frame.edges[1], frame.line),
+                  ...body,
+                  edge(frame.edges[2], frame.line),
+                ]
+              : [
+                  row(block.header, true),
+                  rule('━'.repeat(total), COLOR.headRule),
+                  ...body.flatMap((each, index) =>
+                    index === 0 ? [each] : [rule('─'.repeat(total), COLOR.rowRule), each],
+                  ),
+                ]}
           </Box>,
         )
       } else if (block.kind === 'rule') {

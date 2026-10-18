@@ -12,13 +12,14 @@
     "tableBorder": {
       "type": "string",
       "title": "Table border",
-      "description": "The lines of a table's frame. round: thin lines, rounded corners. single: thin lines, square corners. bold: thick lines, square corners. Thick lines cannot have rounded corners: no such characters exist.",
+      "description": "The lines of a table. rules: no frame, a line under the header and a faint one between the rows. round: a frame of thin lines, rounded corners. single: thin lines, square corners. bold: thick lines, square corners. Thick lines cannot have rounded corners: no such characters exist.",
       "options": [
+        "rules",
         "round",
         "single",
         "bold"
       ],
-      "default": "bold"
+      "default": "rules"
     },
     "cardBorder": {
       "type": "string",

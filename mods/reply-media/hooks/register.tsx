@@ -9,6 +9,28 @@ const playing = atom({ plugin: 'reply-media', key: 'playing' } as const, null)
 const PANE = 'picture-zoom'
 // What `![alt](path)` plays rather than shows, told by the path's extension.
 const VIDEO = /\.(mp4|m4v|mov|webm|mkv|gif)$/i
+// What Claude reads in its system prompt, so that it writes the blocks the mod
+// draws: Claude writes none of them unprompted.
+const FORMS = [
+  'Diagrams:',
+  '',
+  'Draw diagrams in replies as ```mermaid code fences, never as ASCII art. The reply-media mod turns each fence into a picture in the terminal.',
+  'Use only these types, the rest do not render: flowchart, stateDiagram-v2, sequenceDiagram, classDiagram, erDiagram, xychart-beta.',
+  'Start the fence at column 0: an indented fence (inside a list item or a quote) is not picked up.',
+  "Prefer flowchart LR: a TD chart with more than a few nodes fills the terminal's height.",
+  'Directory trees and tables are not diagrams: keep them as text.',
+  '',
+  'Math:',
+  '',
+  'Write a formula that stands on a line of its own as LaTeX in a ```math code fence, one formula per fence, starting at column 0. The same mod turns it into a picture. Leave out `\\tag`: a tagged formula is not drawn.',
+  'Write math inside a sentence in Unicode (a⃗ · b⃗ = |a||b|cos θ), never as `$x$`: a picture cannot sit inside a line of text.',
+  '',
+  'Images:',
+  '',
+  "To show an image file from this machine, write `![alt](path)` on a line of its own, starting at column 0. The same mod draws it. The path is absolute, under `~/`, or relative to the session's working directory. An image at a URL is not fetched, so give its link as text.",
+  'A video file (mp4, mov, webm, mkv, gif) written the same way is shown as its first frame with a play button.',
+  'For a drawing mermaid cannot make (a UI sketch, a layout, an annotated picture), write an SVG file to the scratchpad and show it with the image form above.',
+].join('\n')
 
 // A Button's key, from what it copies: a reply is drawn in parts when two mods
 // draw it between them, so a count kept by one part would repeat in the next.
@@ -196,6 +218,17 @@ export const register: Register = (on, options) => {
   const pxPerColumn = Number(options.pxPerColumn)
   const resumedReplies = Number(options.resumedReplies)
 
+  // Told where a reply is drawn on a terminal. `-p` draws nowhere but is told
+  // too, so that it shows what Claude writes.
+  on('prompt.compose', async ($, e, next) => {
+    const composed = await next(e)
+    const isDrawn = e.surfaces.length === 0 || e.surfaces.includes('terminal')
+
+    return isDrawn
+      ? { sections: [...composed.sections, { id: 'reply-media:forms', text: FORMS, scope: 'session' }] }
+      : composed
+  })
+
   on('session.append', { door: 'response' }, async ($, e, next) => {
     for (const block of e.message.content) {
       if (typeof block.text === 'string') {
@@ -271,9 +304,13 @@ export const register: Register = (on, options) => {
 
     const { Box, Button, Image, Text } = $.ui.resolve(e)
     const room = Math.max(1, (e.viewport?.columns ?? 80) - 4)
+    // The engine draws the reply's bullet with the text that opens it; a
+    // reply that opens with a picture gets its bullet here, beside it.
+    const [opening = ''] = pieces
+    const hasOwnBullet = e.props.isFirstOfReply && typeof opening === 'string' && opening.trim() === ''
     // The engine indents nothing but the block its bullet opens, so what
     // follows that block lines up under its text here.
-    const indent = e.props.isFirstOfReply ? 2 : 0
+    const indent = e.props.isFirstOfReply && !hasOwnBullet ? 2 : 0
     const children: RenderElement[] = []
 
     for (const piece of [...pieces, text]) {
@@ -398,7 +435,17 @@ export const register: Register = (on, options) => {
       )
     }
 
-    return (
+    return hasOwnBullet ? (
+      // Level with the picture, which brings a blank row above itself.
+      <Box flexDirection="row">
+        <Box marginTop={1}>
+          <Text color="text">⏺ </Text>
+        </Box>
+        <Box flexDirection="column" flexGrow={1} flexShrink={1}>
+          {children}
+        </Box>
+      </Box>
+    ) : (
       // No gap: the engine's text brings a blank row above itself.
       <Box flexDirection="column">
         {children}

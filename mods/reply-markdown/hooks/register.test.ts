@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
-import type { On } from 'claude-code'
+import type { On, RenderSurface } from 'claude-code'
 
 const CODE = '```md\n# not a heading\n- not an item\n```'
 const TEXT = [
@@ -109,11 +109,52 @@ test('a reply with nothing to restyle is left to the engine whole', async ($, on
   await ui.unmount()
 })
 
+test('tells Claude its forms where a terminal draws the reply, or under -p', async ($, on) => {
+  on('prompt.compose', () => ({ sections: [{ id: 'intro', text: 'You are Claude.', scope: 'shared' }] }))
+  const ids = async (surfaces: RenderSurface[]) => {
+    const input = { model: 'test', promptModel: 'test', surfaces, tools: [], outputStyle: null, traits: [] }
+
+    return (await $.prompt.compose(input)).sections.map(section => section.id)
+  }
+
+  expect(await ids(['terminal'])).toContain('reply-markdown:forms')
+  expect(await ids([])).toContain('reply-markdown:forms')
+  expect(await ids(['desktop'])).not.toContain('reply-markdown:forms')
+})
+
 test('restyles nothing when turned off', { options: { enabled: false } }, async ($, on) => {
   const drawn = engine(on)
   const ui = await mount($, TEXT)
 
   expect(drawn).toEqual([TEXT])
+  await ui.unmount()
+})
+
+test('tells Claude nothing when turned off', { options: { enabled: false } }, async ($, on) => {
+  on('prompt.compose', () => ({ sections: [{ id: 'intro', text: 'You are Claude.', scope: 'shared' }] }))
+  const surfaces: RenderSurface[] = ['terminal']
+  const input = { model: 'test', promptModel: 'test', surfaces, tools: [], outputStyle: null, traits: [] }
+
+  expect((await $.prompt.compose(input)).sections.map(section => section.id)).toEqual(['intro'])
+})
+
+test('a $$ formula is left whole to the mod beneath, a line of it like a list item too', async ($, on) => {
+  const formula = '$$\na = b\n+ c\n- d\n$$'
+  const drawn = engine(on)
+  const ui = await mount($, `# Title\n\n${formula}\n\n- item`)
+
+  expect(drawn).toEqual([formula])
+  expect((await ui.findAll({ type: 'Markdown' })).map(markdown => markdown.props.text)).toEqual(['item'])
+  await ui.unmount()
+})
+
+test('a ruled table of one row has the header line only', async ($, on) => {
+  engine(on)
+  const ui = await mount($, '| a | b |\n| - | - |\n| 1 | 2 |')
+  const texts = (await ui.findAll({ type: 'Text' })).map(text => text.text)
+
+  // Two columns of one, three a column and one.
+  expect(texts.filter(text => /^[━─]+$/.test(text))).toEqual(['━'.repeat(9)])
   await ui.unmount()
 })
 
@@ -138,7 +179,21 @@ test('an alert quote is a bordered callout, a task item a checkbox', async ($, o
 
 const TABLE = ['| 名稱 | Note |', '| --- | ---: |', '| `ab` | a **bold** word |', '| c | d |'].join('\n')
 
-test('a table is a heavy frame, its header colored, its cells markdown', async ($, on) => {
+test('a table is ruled by default: a line under its header, a faint one between rows', async ($, on) => {
+  engine(on)
+  const ui = await mount($, TABLE)
+  const texts = (await ui.findAll({ type: 'Text' })).map(text => text.text)
+
+  // Four columns for 名稱, eleven for `a bold word`, three a column and one.
+  expect((await ui.find({ type: 'Text', text: '━'.repeat(22) }))?.props.color).toBe('#858392')
+  expect((await ui.find({ type: 'Text', text: '─'.repeat(22) }))?.props.color).toBe('#4d4c57')
+  // One line between the two rows, none above or below the table.
+  expect(texts.filter(text => /^[━─]+$/.test(text))).toHaveLength(2)
+  expect(texts.some(text => /[┃│┏╭]/.test(text))).toBe(false)
+  await ui.unmount()
+})
+
+test('a bold table is a heavy frame, its header colored, its cells markdown', { options: { tableBorder: 'bold' } }, async ($, on) => {
   const drawn = engine(on)
   const ui = await mount($, `Before\n\n${TABLE}\n\nAfter`)
   const texts = (await ui.findAll({ type: 'Text' })).map(text => text.text)
@@ -209,6 +264,15 @@ test('the same code twice in a reply, and a fence the reply-media mod draws', as
   ])
   // Left to whatever sits beneath: the reply-media mod, else the engine.
   expect(drawn).toEqual([picture])
+  await ui.unmount()
+})
+
+test('a mermaid or math fence the reply-media mod cannot read is a code card', async ($, on) => {
+  const drawn = engine(on)
+  const ui = await mount($, '# Title\n\n````mermaid\nflowchart LR\n  A --> B\n````\n\n~~~math\nx^2\n~~~')
+
+  expect((await ui.findAll({ type: 'Code' })).map(each => each.props.language)).toEqual(['mermaid', 'math'])
+  expect(drawn).toEqual([])
   await ui.unmount()
 })
 

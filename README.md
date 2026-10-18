@@ -65,33 +65,7 @@ The mods load in sessions started after that. These files are loaded live from t
 
 ## Tell Claude what to write
 
-`reply-media` draws only what Claude writes in the forms it knows: a `mermaid` fence, a `math` fence, an image on a line of its own. Claude does not write them unprompted, so add these notes to `~/.claude/CLAUDE.md`. The Formatting note does the same for the forms `reply-markdown` draws only when Claude chooses to write them.
-
-````markdown
-Diagrams:
-
-Draw diagrams in replies as ```mermaid code fences, never as ASCII art. The reply-media mod turns each fence into a picture in the terminal.
-Use only these types, the rest do not render: flowchart, stateDiagram-v2, sequenceDiagram, classDiagram, erDiagram, xychart-beta.
-Start the fence at column 0: an indented fence (inside a list item or a quote) is not picked up.
-Prefer flowchart LR: a TD chart with more than a few nodes fills the terminal's height.
-Directory trees and tables are not diagrams: keep them as text.
-
-Math:
-
-Write a formula that stands on a line of its own as LaTeX in a ```math code fence, one formula per fence, starting at column 0. The same mod turns it into a picture. Leave out `\tag`: a tagged formula is not drawn.
-Write math inside a sentence in Unicode (a⃗ · b⃗ = |a||b|cos θ), never as `$x$`: a picture cannot sit inside a line of text.
-
-Images:
-
-To show an image file from this machine, write `![alt](path)` on a line of its own, starting at column 0. The same mod draws it. The path is absolute, under `~/`, or relative to the session's working directory. An image at a URL is not fetched, so give its link as text.
-A video file (mp4, mov, webm, mkv, gif) written the same way is shown as its first frame with a play button.
-
-Formatting:
-
-For a warning or a note I must not miss, write a GitHub alert: a quote whose first line is `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]` or `[!CAUTION]`. It becomes a colored box.
-For steps or checks to tick off, write a task list: `- [ ]` and `- [x]`.
-Put a command or snippet I will copy in a code fence of its own, with its language, not in inline code: the fence gets a copy button.
-````
+`reply-media` draws only what Claude writes in the forms it knows: a `mermaid` fence, a `math` fence, an image on a line of its own. Claude does not write them unprompted, so the mod tells it: it adds a note to the system prompt (`FORMS` in `mods/reply-media/hooks/register.tsx`). `reply-markdown` does the same for the forms it draws only when Claude chooses to write them: alerts, task lists, and a code fence for what you will copy. A note is added only where a reply is drawn on a terminal, and under `claude -p`; a mod turned off adds none. There is nothing to put in your `CLAUDE.md`.
 
 ## Options
 
@@ -103,7 +77,7 @@ Each mod's options are rows in `/config`, and a change takes effect at once.
 | `reply-media` | `pxPerColumn` | `8` | Pixels of a picture per terminal column. Lower draws pictures larger. |
 | `reply-media` | `cellAspect` | `2.17` | How many times taller than wide one terminal cell is. Change it when pictures look squashed or stretched. |
 | `reply-media` | `resumedReplies` | `3` | How many of a resumed session's last replies get their pictures drawn again. |
-| `reply-markdown` | `tableBorder` | `bold` | `round`, `single` or `bold`. |
+| `reply-markdown` | `tableBorder` | `rules` | `rules`: no frame, a line under the header and a faint one between the rows. Or a frame: `round`, `single` or `bold`. |
 | `reply-markdown` | `cardBorder` | `round` | The border of a code card and of a callout box: `round`, `single` or `bold`. |
 
 ## Colors

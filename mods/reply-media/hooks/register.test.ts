@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
-import type { On } from 'claude-code'
+import type { On, RenderSurface } from 'claude-code'
 
 const SOURCE = 'flowchart LR\n  A --> B'
 const TEXT = `Before\n\n\`\`\`mermaid\n${SOURCE}\n\`\`\`\n\nAfter`
@@ -30,7 +30,7 @@ const engine = (on: On) => {
 }
 
 /** Appends the reply as the model's, then draws its row on the terminal. */
-const reply = async ($: Engine, uuid: string) => {
+const reply = async ($: Engine, uuid: string, text = TEXT) => {
   await $.session.append({
     door: 'response',
     origin: { kind: 'model', model: 'test' },
@@ -38,7 +38,7 @@ const reply = async ($: Engine, uuid: string) => {
     message: {
       type: 'assistant',
       role: 'assistant',
-      content: [{ type: 'text', text: TEXT }],
+      content: [{ type: 'text', text }],
     },
   })
 
@@ -46,7 +46,7 @@ const reply = async ($: Engine, uuid: string) => {
     plugin: 'reply-media',
     surface: 'terminal',
     component: 'AssistantMessage',
-    props: { text: TEXT, isFirstOfReply: true },
+    props: { text, isFirstOfReply: true },
   })
 }
 
@@ -71,6 +71,25 @@ test('a mermaid fence of a reply is drawn as an Image once rendered', async ($, 
     rows: 18,
     alt: SOURCE,
   })
+  // The engine draws the bullet, with the text the reply opens with.
+  expect(await ui.find({ type: 'Text', text: '⏺ ' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a reply that opens with a picture has its bullet beside the picture', async ($, on) => {
+  const firsts: boolean[] = []
+  on('session.cwd', () => ({ value: '/work' }))
+  on('ui.render', { component: 'AssistantMessage' }, (_, e) => {
+    firsts.push(e.props.isFirstOfReply === true)
+
+    return { type: 'engine', ref: 0 }
+  })
+  on('process.run', () => ({ value: { ...RAN, stdout: JSON.stringify(DIAGRAM) } }))
+  const ui = await reply($, 'row-opens', `\`\`\`mermaid\n${SOURCE}\n\`\`\`\n\nAfter`)
+
+  expect(await ui.find({ type: 'Text', text: '⏺ ' })).toBeDefined()
+  // The text under it opens nothing: the engine draws no second bullet.
+  expect(firsts).toEqual([false])
   await ui.unmount()
 })
 
@@ -220,6 +239,53 @@ test('a picture is sized by the cell options', { options: { pxPerColumn: 16, cel
   // 800 px at 16 px a column is 50 columns, so 12.5 rows on cells twice as
   // tall as wide: 13 whole rows, and the 52 columns that keep the 2:1 shape.
   expect((await ui.find({ type: 'Image' }))?.props).toMatchObject({ columns: 52, rows: 13 })
+  await ui.unmount()
+})
+
+test('tells Claude its forms where a terminal draws the reply, or under -p', async ($, on) => {
+  on('prompt.compose', () => ({ sections: [{ id: 'intro', text: 'You are Claude.', scope: 'shared' }] }))
+  const ids = async (surfaces: RenderSurface[]) => {
+    const input = { model: 'test', promptModel: 'test', surfaces, tools: [], outputStyle: null, traits: [] }
+
+    return (await $.prompt.compose(input)).sections.map(section => section.id)
+  }
+
+  expect(await ids(['terminal'])).toEqual(['intro', 'reply-media:forms'])
+  expect(await ids([])).toContain('reply-media:forms')
+  expect(await ids(['desktop'])).toEqual(['intro'])
+})
+
+test('tells Claude nothing when turned off', { options: { enabled: false } }, async ($, on) => {
+  on('prompt.compose', () => ({ sections: [{ id: 'intro', text: 'You are Claude.', scope: 'shared' }] }))
+  const surfaces: RenderSurface[] = ['terminal']
+  const input = { model: 'test', promptModel: 'test', surfaces, tools: [], outputStyle: null, traits: [] }
+
+  expect((await $.prompt.compose(input)).sections.map(section => section.id)).toEqual(['intro'])
+})
+
+test('a reply that opens with a block that failed has its bullet beside the box', async ($, on) => {
+  on('process.run', () => ({ value: { ...RAN, exitCode: 1, stderr: 'Error: bad diagram' } }))
+  engine(on)
+  const ui = await reply($, 'row-opens-failed', `\`\`\`mermaid\n${SOURCE}\n\`\`\`\n\nAfter`)
+
+  expect(await ui.find({ type: 'Text', text: '⏺ ' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '✗ not drawn: bad diagram' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a fence indented under a list item is left as text, not rendered', async ($, on) => {
+  const ran: (readonly string[])[] = []
+  on('process.run', (_, e) => {
+    ran.push(e.argv)
+
+    return { value: { ...RAN, stdout: JSON.stringify(DIAGRAM) } }
+  })
+  const drawn = engine(on)
+  const text = `- step\n  \`\`\`mermaid\n  ${SOURCE}\n  \`\`\``
+  const ui = await reply($, 'row-indented', text)
+
+  expect(ran).toEqual([])
+  expect(drawn).toEqual([text])
   await ui.unmount()
 })
 

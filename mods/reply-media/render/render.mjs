@@ -119,7 +119,9 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   // math.mjs, which imports this file, needs no mermaid.
   registerHooks({ load: withModelOrder })
   const { renderMermaidSVG } = await import('beautiful-mermaid')
-  const source = readFileSync(0, 'utf8')
+  // A `---` frontmatter block (config, title) is dropped: the colors are
+  // THEME's, and beautiful-mermaid rejects a diagram that opens with one.
+  const source = readFileSync(0, 'utf8').replace(/^---\n[\s\S]*?\n---\n/, '')
   // Named by theme and source, so a restyle never shows a picture drawn before it.
   rasterize(flatten(renderMermaidSVG(source, THEME)), JSON.stringify(THEME) + source)
 }
