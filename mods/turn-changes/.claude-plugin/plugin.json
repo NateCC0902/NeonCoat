@@ -1,0 +1,14 @@
+{
+  "name": "turn-changes",
+  "version": "0.1.0",
+  "description": "Lists the files the last turn changed in a pane, each with its diff a press away; /changes opens it (terminal)",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "enabled": {
+      "type": "boolean",
+      "title": "Enabled",
+      "description": "Turn this mod off without removing it. Takes effect at once.",
+      "default": true
+    }
+  }
+}

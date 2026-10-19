@@ -1,0 +1,14 @@
+{
+  "name": "test-summary",
+  "version": "0.1.0",
+  "description": "Draws a test or type-check run's output as one count line with its failures under it, the passing tests folded away (terminal)",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "enabled": {
+      "type": "boolean",
+      "title": "Enabled",
+      "description": "Turn this mod off without removing it. Takes effect at once.",
+      "default": true
+    }
+  }
+}
