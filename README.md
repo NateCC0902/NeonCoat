@@ -11,6 +11,7 @@ Mods and a status line for [Claude Code](https://claude.com/claude-code). A repl
 | `mods/reply-media/` | Draws `mermaid` fences, formulas (`math` fences and `$$` blocks) and local images (`![alt](path)` on a line of its own) as pictures. A local video written as an image is drawn as its first frame with a play button, and plays in place. Under each picture, one button copies its source and one opens it larger in a pane. |
 | `mods/reply-markdown/` | Draws headings, lists, task lists, quotes, callouts (`> [!WARNING]`), rules and tables in color, and puts each code fence in a card with a copy button. |
 | `mods/skill-router/` | `/skill-router <question>` asks a small model which of your user-only skills fits the question. With no question it lists them. |
+| `mods/shell-tail/` | Lists every shell Claude started that is still running, background ones included, in a band above the prompt: its command, how long it has run, how many lines it wrote, and its last line. |
 | `statusline.mjs` | The status line. First row: context used, cost, model, tokens per second, folder, cache hit rate, git state. Second row: subscription windows and when they refill, Remote Control, and the other sessions running on the machine. |
 
 ## What `reply-markdown` draws
@@ -50,7 +51,7 @@ Then point `~/.claude/settings.json` at the clone. `CLAUDE_CODE_PLUGIN_DIRS` is 
 ```json
 {
   "env": {
-    "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/NeonCoat/mods/reply-media:/path/to/NeonCoat/mods/reply-markdown:/path/to/NeonCoat/mods/skill-router"
+    "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/NeonCoat/mods/reply-media:/path/to/NeonCoat/mods/reply-markdown:/path/to/NeonCoat/mods/skill-router:/path/to/NeonCoat/mods/shell-tail"
   },
   "statusLine": {
     "type": "command",
@@ -73,7 +74,7 @@ Each mod's options are rows in `/config`, and a change takes effect at once.
 
 | Mod | Option | Default | What it changes |
 | --- | --- | --- | --- |
-| all three | `enabled` | `true` | Turns the mod off without removing it. |
+| all four | `enabled` | `true` | Turns the mod off without removing it. |
 | `reply-media` | `pxPerColumn` | `8` | Pixels of a picture per terminal column. Lower draws pictures larger. |
 | `reply-media` | `cellAspect` | `2.17` | How many times taller than wide one terminal cell is. Change it when pictures look squashed or stretched. |
 | `reply-media` | `resumedReplies` | `3` | How many of a resumed session's last replies get their pictures drawn again. |

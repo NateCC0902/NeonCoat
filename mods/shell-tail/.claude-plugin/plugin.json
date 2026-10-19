@@ -1,0 +1,14 @@
+{
+  "name": "shell-tail",
+  "version": "0.1.0",
+  "description": "Lists every shell still running above the prompt: how long it has run, how much it wrote, and its last line (terminal)",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "enabled": {
+      "type": "boolean",
+      "title": "Enabled",
+      "description": "Turn this mod off without removing it. Takes effect at once.",
+      "default": true
+    }
+  }
+}
