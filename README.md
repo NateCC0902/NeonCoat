@@ -65,7 +65,7 @@ The mods load in sessions started after that. These files are loaded live from t
 
 ## Tell Claude what to write
 
-`reply-media` draws only what Claude writes in the forms it knows: a `mermaid` fence, a `math` fence, an image on a line of its own. Claude does not write them unprompted, so the mod tells it: it adds a note to the system prompt (`FORMS` in `mods/reply-media/hooks/register.tsx`). `reply-markdown` does the same for the forms it draws only when Claude chooses to write them: alerts, task lists, and a code fence for what you will copy. A note is added only where a reply is drawn on a terminal, and under `claude -p`; a mod turned off adds none. There is nothing to put in your `CLAUDE.md`.
+`reply-media` draws only what Claude writes in the forms it knows: a `mermaid` fence, a `math` fence, an image on a line of its own. Claude does not write them unprompted, so the mod tells it: it adds a note to the system prompt (`FORMS` in `mods/reply-media/hooks/register.tsx`). `reply-markdown` does the same for the forms it draws only when Claude chooses to write them: alerts, task lists, and a code fence for what you will copy. A note is added only where a reply is drawn on a terminal, not under `claude -p` or in an app, where the forms would come out as their source; a mod turned off adds none. There is nothing to put in your `CLAUDE.md`.
 
 ## Options
 

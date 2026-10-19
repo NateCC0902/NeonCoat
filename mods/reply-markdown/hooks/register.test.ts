@@ -109,7 +109,7 @@ test('a reply with nothing to restyle is left to the engine whole', async ($, on
   await ui.unmount()
 })
 
-test('tells Claude its forms where a terminal draws the reply, or under -p', async ($, on) => {
+test('tells Claude its forms only where a terminal draws the reply', async ($, on) => {
   on('prompt.compose', () => ({ sections: [{ id: 'intro', text: 'You are Claude.', scope: 'shared' }] }))
   const ids = async (surfaces: RenderSurface[]) => {
     const input = { model: 'test', promptModel: 'test', surfaces, tools: [], outputStyle: null, traits: [] }
@@ -118,7 +118,7 @@ test('tells Claude its forms where a terminal draws the reply, or under -p', asy
   }
 
   expect(await ids(['terminal'])).toContain('reply-markdown:forms')
-  expect(await ids([])).toContain('reply-markdown:forms')
+  expect(await ids([])).not.toContain('reply-markdown:forms')
   expect(await ids(['desktop'])).not.toContain('reply-markdown:forms')
 })
 

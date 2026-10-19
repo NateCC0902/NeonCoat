@@ -14,12 +14,13 @@ const RAN = {
 }
 
 /**
- * Stands for the engine beneath the mod: a session in /work, and a record of
- * the text it is asked to draw.
+ * Stands for the engine beneath the mod: a session in /work drawn on a
+ * terminal, and a record of the text it is asked to draw.
  */
 const engine = (on: On) => {
   const drawn: string[] = []
   on('session.cwd', () => ({ value: '/work' }))
+  on('session.surfaces', () => ({ value: ['terminal'] }))
   on('ui.render', { component: 'AssistantMessage' }, (_, e) => {
     drawn.push(e.props.text)
 
@@ -79,6 +80,7 @@ test('a mermaid fence of a reply is drawn as an Image once rendered', async ($, 
 test('a reply that opens with a picture has its bullet beside the picture', async ($, on) => {
   const firsts: boolean[] = []
   on('session.cwd', () => ({ value: '/work' }))
+  on('session.surfaces', () => ({ value: ['terminal'] }))
   on('ui.render', { component: 'AssistantMessage' }, (_, e) => {
     firsts.push(e.props.isFirstOfReply === true)
 
@@ -142,7 +144,7 @@ const source = (name: string) => `flowchart LR\n  ${name} --> Z`
  * Stands for a resumed session of four replies, each one diagram, and starts
  * it; answers the sources the mod rendered, in order.
  */
-const resume = async ($: Engine, on: On) => {
+const resume = async ($: Engine, on: On, surface: RenderSurface | null = 'terminal') => {
   const rendered: (string | undefined)[] = []
   engine(on)
   on('session.messages', () => ({
@@ -161,7 +163,7 @@ const resume = async ($: Engine, on: On) => {
     return { value: { ...RAN, stdout: JSON.stringify(DIAGRAM) } }
   })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
-  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+  await $.session.start({ cwd: '/work', surface, isInteractive: surface !== null })
 
   return rendered
 }
@@ -176,6 +178,10 @@ test('the number of replies redrawn on resume is an option', { options: { resume
 
 test('zero redraws none', { options: { resumedReplies: 0 } }, async ($, on) => {
   expect(await resume($, on)).toEqual([])
+})
+
+test('a session resumed under -p redraws none', async ($, on) => {
+  expect(await resume($, on, null)).toEqual([])
 })
 
 const MIXED = [
@@ -242,7 +248,7 @@ test('a picture is sized by the cell options', { options: { pxPerColumn: 16, cel
   await ui.unmount()
 })
 
-test('tells Claude its forms where a terminal draws the reply, or under -p', async ($, on) => {
+test('tells Claude its forms only where a terminal draws the reply', async ($, on) => {
   on('prompt.compose', () => ({ sections: [{ id: 'intro', text: 'You are Claude.', scope: 'shared' }] }))
   const ids = async (surfaces: RenderSurface[]) => {
     const input = { model: 'test', promptModel: 'test', surfaces, tools: [], outputStyle: null, traits: [] }
@@ -251,8 +257,26 @@ test('tells Claude its forms where a terminal draws the reply, or under -p', asy
   }
 
   expect(await ids(['terminal'])).toEqual(['intro', 'reply-media:forms'])
-  expect(await ids([])).toContain('reply-media:forms')
+  expect(await ids([])).toEqual(['intro'])
   expect(await ids(['desktop'])).toEqual(['intro'])
+})
+
+test('renders nothing where no terminal draws, as under -p', async ($, on) => {
+  const ran: (readonly string[])[] = []
+  on('process.run', (_, e) => {
+    ran.push(e.argv)
+
+    return { value: { ...RAN, stdout: JSON.stringify(DIAGRAM) } }
+  })
+  on('session.surfaces', () => ({ value: [] }))
+  await $.session.append({
+    door: 'response',
+    origin: { kind: 'model', model: 'test' },
+    uuid: 'row-headless',
+    message: { type: 'assistant', role: 'assistant', content: [{ type: 'text', text: TEXT }] },
+  })
+
+  expect(ran).toEqual([])
 })
 
 test('tells Claude nothing when turned off', { options: { enabled: false } }, async ($, on) => {

@@ -218,11 +218,11 @@ export const register: Register = (on, options) => {
   const pxPerColumn = Number(options.pxPerColumn)
   const resumedReplies = Number(options.resumedReplies)
 
-  // Told where a reply is drawn on a terminal. `-p` draws nowhere but is told
-  // too, so that it shows what Claude writes.
+  // Told only where a terminal draws the reply: under `-p`, the SDK or an app
+  // the forms would come out as their source.
   on('prompt.compose', async ($, e, next) => {
     const composed = await next(e)
-    const isDrawn = e.surfaces.length === 0 || e.surfaces.includes('terminal')
+    const isDrawn = e.surfaces.includes('terminal')
 
     return isDrawn
       ? { sections: [...composed.sections, { id: 'reply-media:forms', text: FORMS, scope: 'session' }] }
@@ -230,6 +230,11 @@ export const register: Register = (on, options) => {
   })
 
   on('session.append', { door: 'response' }, async ($, e, next) => {
+    // A picture no terminal draws is not worth its render.
+    if (!(await $.session.surfaces()).includes('terminal')) {
+      return next(e)
+    }
+
     for (const block of e.message.content) {
       if (typeof block.text === 'string') {
         await render($, block.text)
@@ -248,8 +253,9 @@ export const register: Register = (on, options) => {
       message => message.role === 'assistant' && message.text !== '',
     )
 
-    // `slice(-0)` would keep every reply.
-    for (const reply of resumedReplies > 0 ? replies.slice(-resumedReplies) : []) {
+    // `slice(-0)` would keep every reply. A session no terminal draws gets none.
+    const count = e.surface === 'terminal' ? resumedReplies : 0
+    for (const reply of count > 0 ? replies.slice(-count) : []) {
       await render($, reply.text)
     }
 

@@ -249,11 +249,11 @@ export const register: Register = (on, options) => {
   const frame = FRAME[String(options.tableBorder)]
   const cardBorder = String(options.cardBorder) in FRAME ? String(options.cardBorder) : 'round'
 
-  // Told where a reply is drawn on a terminal. `-p` draws nowhere but is told
-  // too, so that it shows what Claude writes.
+  // Told only where a terminal draws the reply: under `-p`, the SDK or an app
+  // the forms would not be drawn.
   on('prompt.compose', async ($, e, next) => {
     const composed = await next(e)
-    const isDrawn = e.surfaces.length === 0 || e.surfaces.includes('terminal')
+    const isDrawn = e.surfaces.includes('terminal')
 
     return isDrawn
       ? { sections: [...composed.sections, { id: 'reply-markdown:forms', text: FORMS, scope: 'session' }] }
