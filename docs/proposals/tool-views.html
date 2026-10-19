@@ -247,7 +247,7 @@
 <main class="page">
   <header>
     <h1>NeonCoat 模組預覽</h1>
-    <p class="lead">三個還沒動手寫的 mod，先畫出來看。終端機畫面用 Charm 主題。測試名稱和耗時來自 reply-media 的真實測試；其中的失敗、檔案變更和背景 shell 都是示範用的範例。</p>
+    <p class="lead">三個 mod 的樣子：#5 已經做成 <code>shell-tail</code>，#1 和 #2 還沒動手寫。終端機畫面用 Charm 主題。測試名稱和耗時來自 reply-media 的真實測試；其中的失敗、檔案變更和背景 shell 都是示範用的範例。</p>
   </header>
 
   <section id="tests" aria-labelledby="tests-title">
@@ -294,9 +294,9 @@
 
   <section id="running" aria-labelledby="running-title">
     <div class="intro">
-      <span class="eyebrow">#5 · 重繪 ToolUse ＋ AbovePrompt</span>
+      <span class="eyebrow">#5 · 已做成 shell-tail · AbovePrompt</span>
       <h2 id="running-title">執行中的 shell</h2>
-      <p>指令還在跑的時候，工具那一行下面顯示最後 4 行輸出、已用時間和行數。輸入框上方的橫條列出所有正在跑的 shell，背景的也算在內，對話捲走了也看得到。</p>
+      <p>輸入框上方的橫條列出所有還在跑的 shell，背景的也算在內：指令、已用時間、行數和最後一行輸出，對話捲走了也看得到。工具那一行照原生的樣子，跑完前只顯示 <code>Running…</code>。</p>
     </div>
     <div class="controls">
       <button type="button" class="action" id="replay">重新播放</button>
@@ -308,7 +308,7 @@
       <div class="prompt"><span class="s">&gt;</span> <span class="cursor" aria-hidden="true"></span></div>
       <div class="foot">? for shortcuts</div>
     </div>
-    <p class="note"><strong>要先驗證的一點：</strong>mod API 現在拿不到執行中指令的輸出，<code>ToolProgress</code> 只帶 <code>(ctrl+b to run in background)</code> 那個提示。要做出這個，得在 <code>tool.call</code> 改寫指令，把輸出另外複製一份到檔案，再由 mod 讀那個檔案。</p>
+    <p class="note">已做成 <code>mods/shell-tail/</code>：它讀 Claude Code 為每個執行中指令寫的輸出檔，不改寫指令，權限規則照常。背景 shell 在沒有程序開著它的輸出檔時（由 <code>lsof</code> 判斷）離開橫條。</p>
   </section>
 </main>
 <div class="toast" role="status" aria-live="polite" hidden></div>
@@ -638,6 +638,12 @@ const clockText = ms => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 const tint = text => text.startsWith('✔') ? sp('ok', '✔') + esc(text.slice(1)) : esc(text)
+/** A command's first line, cut at 40 columns as the mod cuts it. */
+const label = command => {
+  const [line = ''] = command.trim().split('\n')
+  if (line.length > 40) return `${line.slice(0, 39)}…`
+  return command.trim().includes('\n') ? `${line} …` : line
+}
 
 function renderRun(t) {
   const done = t >= END
@@ -649,9 +655,7 @@ function renderRun(t) {
     html += ln(PAD + sp('s', `… +${lines.length - 3} lines (ctrl+o to expand)`)) + ln()
     html += say('All 16 tests pass.')
   } else {
-    const tail = lines.filter(line => line.trim()).slice(-4)
-    html += tail.length ? tail.map((line, i) => ln((i ? PAD : OUT) + tint(line))).join('') : ln(OUT + sp('s', 'Running…'))
-    html += ln(PAD + sp('s', `⋯ ${clockText(t)} · ${plural(lines.length, 'line')}`))
+    html += ln(OUT + sp('s', 'Running…'))
     html += ln(PAD + sp('s', '(ctrl+b to run in background)'))
     html += ln()
     html += ln(sp('acc', '✻ Brewing… ') + sp('s', `(${Math.floor(t / 1000)}s · esc to interrupt)`))
@@ -659,14 +663,14 @@ function renderRun(t) {
   document.getElementById('run-screen').innerHTML = html
 
   const lastLine = lines.filter(line => line.trim()).at(-1) ?? ''
-  const row = (state, cmd, time, size, last) =>
-    `<div class="band-row">${sp(state, '●')}<span class="cmd">${esc(cmd)}</span>${sp('s', time)}${sp('s', size)}<span class="last">${tint(last)}</span></div>`
+  // The band as shell-tail draws it: command, time, count, last line.
+  const row = (dot, cmd, time, size, last) =>
+    `<div class="band-row">${sp(dot, '●')}<span class="cmd">${esc(label(cmd))}</span>${sp('s', time)}${sp('s', size)}<span class="last">${tint(last)}</span></div>`
   const shells = [
-    !done && row('run', 'npm install && npm test', clockText(t), plural(lines.length, 'line'), lastLine),
-    row('acc', 'node --test --watch statusline.test.mjs', clockText(BG_AGE + Math.min(t, END)), 'background', '✔ 9 passed · watching'),
+    !done && row('i', RUN_CMD, clockText(t), plural(lines.length, 'line'), lastLine),
+    row('acc', 'node --test --watch statusline.test.mjs', `bg ${clockText(BG_AGE + Math.min(t, END))}`, '214 lines', '✔ 9 passed'),
   ].filter(Boolean)
-  document.getElementById('run-band').innerHTML =
-    ln(sp('s', `⏵ ${plural(shells.length, 'shell')} running`)).replace('class="ln"', 'class=""') + shells.join('')
+  document.getElementById('run-band').innerHTML = shells.join('')
 }
 
 let timer
