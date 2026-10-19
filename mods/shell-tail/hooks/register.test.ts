@@ -96,7 +96,7 @@ const band = ($: Engine) =>
 const texts = async (ui: { findAll: (query: { type: string }) => Promise<{ text: string }[]> }) =>
   (await ui.findAll({ type: 'Text' })).map(each => each.text)
 
-test('a running command shows its time, its count and its last line, and leaves when it ends', async ($, on) => {
+test('a command in the foreground is left to the transcript', async ($, on) => {
   const clock = mock.clock(on)
   const { files, open } = machine(on)
   const run = command(on, files, open)
@@ -107,7 +107,7 @@ test('a running command shows its time, its count and its last line, and leaves 
   await clock.advance(7000)
   const ui = await band($)
 
-  expect(await texts(ui)).toEqual(['●', 'npm test', '0:07', '7 lines', 'loading 100%'])
+  expect(await texts(ui)).toEqual([])
 
   run.finish()
   await call
@@ -115,26 +115,24 @@ test('a running command shows its time, its count and its last line, and leaves 
   await ui.unmount()
 })
 
-test('the band lists a running command, and keeps one moved to the background until it closes', async ($, on) => {
+test('a command moved to the background is listed until it closes, timed from its start', async ($, on) => {
   const clock = mock.clock(on)
   const { files, open } = machine(on)
   const run = command(on, files, open)
 
   const call = $.tool.call({ tool: 'Bash', command: 'npm run dev' })
   await clock.settle()
-  files.set(FILE, 'ready on :5173\n')
-  await clock.advance(500)
+  await clock.advance(3000)
   const ui = await band($)
-
-  expect(await texts(ui)).toEqual(['●', 'npm run dev', '0:00', '1 line', 'ready on :5173'])
+  expect(await texts(ui)).toEqual([])
 
   // ctrl+b: the call ends with a task, and the command runs on with its file open.
   run.finish({ ...DONE, backgroundTaskId: 't1' })
-  files.set(FILE, 'ready on :5173\n')
+  files.set(FILE, OUTPUT)
   open.add(FILE)
   await call
-  await clock.advance(1500)
-  expect(await texts(ui)).toEqual(['●', 'npm run dev', 'bg 0:02', '1 line', 'ready on :5173'])
+  await clock.advance(500)
+  expect(await texts(ui)).toEqual(['●', 'npm run dev', '0:03', '7 lines', 'loading 100%'])
 
   open.delete(FILE)
   await clock.advance(2000)
@@ -142,7 +140,7 @@ test('the band lists a running command, and keeps one moved to the background un
   await ui.unmount()
 })
 
-test('a command started in the background is found by its task id', async ($, on) => {
+test('a command started in the background is found by its task id, and named by its description', async ($, on) => {
   const clock = mock.clock(on)
   const { files, open } = machine(on)
   on('tool.call', () => {
@@ -152,23 +150,26 @@ test('a command started in the background is found by its task id', async ($, on
     return { result: { ...DONE, backgroundTaskId: 'b1' } }
   })
 
-  await $.tool.call({ tool: 'Bash', command: 'node --test --watch', run_in_background: true })
+  await $.tool.call({ tool: 'Bash', command: 'node --test --watch', description: 'Run the tests on every change', run_in_background: true })
   await clock.advance(500)
   const ui = await band($)
 
-  expect(await texts(ui)).toEqual(['●', 'node --test --watch', 'bg 0:00', '2 lines', '✔ 9 passed'])
+  expect(await texts(ui)).toEqual(['●', 'Run the tests on every change', '0:00', '2 lines', '✔ 9 passed'])
   await ui.unmount()
 })
 
 test('a session no terminal draws is left alone', async ($, on) => {
   const clock = mock.clock(on)
   const { files, open, listed } = machine(on, [])
-  const run = command(on, files, open)
+  on('tool.call', () => {
+    files.set(`${TASKS}/b1.output`, 'watching\n')
+    open.add(`${TASKS}/b1.output`)
 
-  const call = $.tool.call({ tool: 'Bash', command: 'npm test' })
+    return { result: { ...DONE, backgroundTaskId: 'b1' } }
+  })
+
+  await $.tool.call({ tool: 'Bash', command: 'node --test --watch', run_in_background: true })
   await clock.advance(1000)
-  run.finish()
-  await call
 
   expect(listed).toEqual([])
 })

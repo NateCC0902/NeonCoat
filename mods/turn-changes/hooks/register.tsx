@@ -136,14 +136,14 @@ export const register: Register = (on, options) => {
     )
 
     if (files.length === 0) {
-      return <Text dimColor>No file changed yet. A turn's edits show here as it makes them.</Text>
+      return <Text color="subtle">No file changed yet. A turn's edits show here as it makes them.</Text>
     }
 
     if (shown === undefined) {
       return (
         <Box flexDirection="column">
           <Box flexDirection="row" justifyContent="space-between">
-            <Text dimColor>{plural(files.length, 'file')}</Text>
+            <Text color="subtle">{plural(files.length, 'file')}</Text>
             {totals(
               files.reduce((sum, file) => sum + file.added, 0),
               files.reduce((sum, file) => sum + file.removed, 0),
@@ -155,14 +155,14 @@ export const register: Register = (on, options) => {
             return (
               <Button key={`file:${file.path}`} plain onPress={() => update($, open, () => file.path)}>
                 <Text color={file.isNew ? 'success' : 'claude'}>{file.isNew ? 'A ' : 'M '}</Text>
-                <Text dimColor>{file.path.slice(0, at)}</Text>
+                <Text color="subtle">{file.path.slice(0, at)}</Text>
                 {file.path.slice(at)}
                 <Text color="success"> +{file.added}</Text>
                 <Text color="error"> −{file.removed}</Text>
               </Button>
             )
           })}
-          <Text dimColor>Press a file to see what the turn changed in it.</Text>
+          <Text color="subtle">Press a file to see what the turn changed in it.</Text>
         </Box>
       )
     }
@@ -176,7 +176,7 @@ export const register: Register = (on, options) => {
         </Box>
         {shown.edits.map((hunks, index) => (
           <Box flexDirection="column" marginTop={1}>
-            {shown.edits.length > 1 && <Text dimColor>edit {index + 1} of {shown.edits.length}</Text>}
+            {shown.edits.length > 1 && <Text color="subtle">edit {index + 1} of {shown.edits.length}</Text>}
             <Code format="diff" path={shown.path} source={unified(hunks)} wrap="truncate-end" />
           </Box>
         ))}

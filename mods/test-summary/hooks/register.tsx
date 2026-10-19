@@ -187,18 +187,18 @@ async function drawRun($: EngineInterface, { Box, Text, Button }: Elements['term
             ✗ {failed} failed
           </Text>
         )}
-        {failed > 0 && <Text dimColor> · </Text>}
+        {failed > 0 && <Text color="subtle"> · </Text>}
         <Text color="success" bold={failed === 0}>
           ✓ {summary.passedCount} passed
         </Text>
-        {summary.seconds !== undefined && <Text dimColor> · {summary.seconds.toFixed(1)}s</Text>}
+        {summary.seconds !== undefined && <Text color="subtle"> · {summary.seconds.toFixed(1)}s</Text>}
       </Box>
     )
 
   return (
     <Box flexDirection="column">
       <Box flexDirection="row">
-        <Text dimColor>{'  ⎿  '}</Text>
+        <Text color="subtle">{'  ⎿  '}</Text>
         {count}
         <Text>{'    '}</Text>
         {summary.kind === 'tests' && summary.passed.length > 0 && (
@@ -227,7 +227,7 @@ async function drawRun($: EngineInterface, { Box, Text, Button }: Elements['term
               <Text color="error">✗ </Text>
               <Text bold>{failure.name}</Text>
             </Box>
-            {failure.at !== undefined && <Text dimColor>{`  ${failure.at}`}</Text>}
+            {failure.at !== undefined && <Text color="subtle">{`  ${failure.at}`}</Text>}
             {failure.detail.map(line => (
               <Text color={line.startsWith('+') ? 'success' : line.startsWith('-') ? 'error' : undefined}>{`  ${line}`}</Text>
             ))}
@@ -238,7 +238,7 @@ async function drawRun($: EngineInterface, { Box, Text, Button }: Elements['term
             {summary.passed.map(test => (
               <Box flexDirection="row">
                 <Text color="success">✓ </Text>
-                <Text dimColor>{test.ms === undefined ? test.name : `${test.name} (${Math.round(test.ms)}ms)`}</Text>
+                <Text color="subtle">{test.ms === undefined ? test.name : `${test.name} (${Math.round(test.ms)}ms)`}</Text>
               </Box>
             ))}
           </Box>

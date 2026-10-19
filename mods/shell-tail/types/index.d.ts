@@ -1,12 +1,12 @@
-/** A shell command Claude started that is still running. */
+/** A shell command Claude started that is still running in the background. */
 export type Shell = {
   /** The command as Claude wrote it. */
   command: string
+  /** What the command does, in the words of its call; the band's name for it. */
+  description?: string
   /** The file Claude Code writes its output to as it runs. */
   file: string
-  /** The call it runs under; absent once it runs in the background. */
-  toolUseId?: string
-  isBackground: boolean
+  /** When its call started, which is before ctrl+b moved it to the background. */
   startedAt: number
   /** How long it has run, in whole seconds' worth of milliseconds. */
   elapsedMs: number

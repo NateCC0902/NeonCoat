@@ -1,6 +1,6 @@
 # NeonCoat
 
-Mods and a status line for [Claude Code](https://claude.com/claude-code). A reply's diagrams, formulas, images and videos are drawn as pictures in the terminal, its markdown is drawn in color, and the status line says what the session is costing.
+Mods and a status line for [Claude Code](https://claude.com/claude-code). A reply's diagrams, formulas, images and videos are drawn as pictures in the terminal, its markdown is drawn in color, background shells, test runs and a turn's edits get views of their own, and the status line says what the session is costing.
 
 ![A Claude Code reply drawn in the terminal: a flowchart, a formula, a table, a task list, a callout, a code card, then a video playing in place](docs/demo.gif)
 
@@ -11,7 +11,7 @@ Mods and a status line for [Claude Code](https://claude.com/claude-code). A repl
 | `mods/reply-media/` | Draws `mermaid` fences, formulas (`math` fences and `$$` blocks) and local images (`![alt](path)` on a line of its own) as pictures. A local video written as an image is drawn as its first frame with a play button, and plays in place. Under each picture, one button copies its source and one opens it larger in a pane. |
 | `mods/reply-markdown/` | Draws headings, lists, task lists, quotes, callouts (`> [!WARNING]`), rules and tables in color, and puts each code fence in a card with a copy button. |
 | `mods/skill-router/` | `/skill-router <question>` asks a small model which of your user-only skills fits the question. With no question it lists them. |
-| `mods/shell-tail/` | Lists every shell Claude started that is still running, background ones included, in a band above the prompt: its command, how long it has run, how many lines it wrote, and its last line. |
+| `mods/shell-tail/` | Lists every shell Claude has running in the background in a band above the prompt, named by what it does: how long it has run, how many lines it wrote, and its last line. A command in the foreground is left to the transcript. |
 | `mods/test-summary/` | Draws a test or type-check run (`node --test`, `bun test`, `claude plugin test`, `tsc`) as one count line with each failure and its error under it. The passing tests, a copy of the failures and the whole output are a press away. |
 | `mods/turn-changes/` | Lists the files the last turn changed in a pane, each with its diff a press away. The pane opens by itself where the terminal is wide enough; `/changes` opens it anywhere. |
 | `statusline.mjs` | The status line. First row: context used, cost, model, tokens per second, folder, cache hit rate, git state. Second row: subscription windows and when they refill, Remote Control, and the other sessions running on the machine. |
@@ -29,6 +29,16 @@ The five callouts:
 A table, a task list, and a code fence as a card with its copy button:
 
 <img src="docs/markdown-blocks.png" width="830" alt="A table ruled under its header and between its rows, a task list with two items ticked, and a TypeScript snippet in a card with a copy button">
+
+## What the tool views draw
+
+A dev server left running in the background, a failing test run, the fix, and the run again:
+
+![A Claude Code session: a background dev server listed in a band above the prompt, a test run drawn as one count line with its failure, a pane listing the file the fix changed and then its diff, and the tests passing](docs/tool-views.gif)
+
+- `shell-tail`: the band above the prompt, one row per background shell, its dot in the theme's color for background work.
+- `test-summary`: the count line under `Ran 1 shell command`, each failure and its diff under it.
+- `turn-changes`: the pane on the right, opened by the turn's first edit. A press on a file shows its diff.
 
 ## Requirements
 
@@ -85,7 +95,7 @@ Each mod's options are rows in `/config`, and a change takes effect at once.
 
 ## Colors
 
-The colors are written into the code to match one dark theme, which is not in this repo. For another theme, edit the constants at the top of each file: `COLORS` in `statusline.mjs`, `COLOR` and `CALLOUT` in `mods/reply-markdown/hooks/register.tsx`, and `THEME` in `mods/reply-media/render/render.mjs`.
+The colors are written into the code to match one dark theme, which is not in this repo. For another theme, edit the constants at the top of each file: `COLORS` in `statusline.mjs`, `COLOR` and `CALLOUT` in `mods/reply-markdown/hooks/register.tsx`, and `THEME` in `mods/reply-media/render/render.mjs`. `shell-tail`, `test-summary` and `turn-changes` name the theme's own colors (`background`, `success`, `error`, `subtle`), so they follow whichever theme is set.
 
 ## Checks
 
