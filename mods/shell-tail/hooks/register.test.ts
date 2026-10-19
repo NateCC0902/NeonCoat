@@ -173,3 +173,26 @@ test('a session no terminal draws is left alone', async ($, on) => {
 
   expect(listed).toEqual([])
 })
+
+test('past the rows option, the newest shells are counted on one row', { options: { rows: 2 } }, async ($, on) => {
+  const clock = mock.clock(on)
+  const { files, open } = machine(on)
+  let started = 0
+  on('tool.call', () => {
+    started += 1
+    const file = `${TASKS}/b${started}.output`
+    files.set(file, `shell ${started}\n`)
+    open.add(file)
+
+    return { result: { ...DONE, backgroundTaskId: `b${started}` } }
+  })
+
+  for (const command of ['npm run dev', 'npm run api', 'npm run docs']) {
+    await $.tool.call({ tool: 'Bash', command, run_in_background: true })
+    await clock.advance(1000)
+  }
+  const ui = await band($)
+
+  expect(await texts(ui)).toEqual(['●', 'npm run dev', '0:03', '1 line', 'shell 1', '●', '+2 more'])
+  await ui.unmount()
+})

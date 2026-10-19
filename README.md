@@ -13,7 +13,7 @@ Mods and a status line for [Claude Code](https://claude.com/claude-code). A repl
 | `mods/skill-router/` | `/skill-router <question>` asks a small model which of your user-only skills fits the question. With no question it lists them. |
 | `mods/shell-tail/` | Lists every shell Claude has running in the background in a band above the prompt, named by what it does: how long it has run, how many lines it wrote, and its last line. A command in the foreground is left to the transcript. |
 | `mods/test-summary/` | Draws a test or type-check run (`node --test`, `bun test`, `claude plugin test`, `tsc`) as one count line with each failure and its error under it. The passing tests, a copy of the failures and the whole output are a press away. |
-| `mods/turn-changes/` | Lists the files the last turn changed in a pane, each with its diff a press away. The pane opens by itself where the terminal is wide enough; `/changes` opens it anywhere. |
+| `mods/turn-changes/` | Lists the files the last turn changed in a pane, each with its diff a press away. `/changes` opens it; with `autoOpen` on, it opens by itself at a turn's first edit where the terminal is wide enough. |
 | `statusline.mjs` | The status line. First row: context used, cost, model, tokens per second, folder, cache hit rate, git state. Second row: subscription windows and when they refill, Remote Control, and the other sessions running on the machine. |
 
 ## What `reply-markdown` draws
@@ -38,7 +38,7 @@ A dev server left running in the background, a failing test run, the fix, and th
 
 - `shell-tail`: the band above the prompt, one row per background shell, its dot in the theme's color for background work.
 - `test-summary`: the count line under `Ran 1 shell command`, each failure and its diff under it.
-- `turn-changes`: the pane on the right, opened by the turn's first edit. A press on a file shows its diff.
+- `turn-changes`: the pane on the right, opened here by the turn's first edit (`autoOpen` on), else by `/changes`. A press on a file shows its diff.
 
 ## Requirements
 
@@ -78,20 +78,27 @@ The mods load in sessions started after that. These files are loaded live from t
 
 ## Tell Claude what to write
 
-`reply-media` draws only what Claude writes in the forms it knows: a `mermaid` fence, a `math` fence, an image on a line of its own. Claude does not write them unprompted, so the mod tells it: it adds a note to the system prompt (`FORMS` in `mods/reply-media/hooks/register.tsx`). `reply-markdown` does the same for the forms it draws only when Claude chooses to write them: alerts, task lists, and a code fence for what you will copy. A note is added only where a reply is drawn on a terminal, not under `claude -p` or in an app, where the forms would come out as their source; a mod turned off adds none. There is nothing to put in your `CLAUDE.md`.
+`reply-media` draws only what Claude writes in the forms it knows: a `mermaid` fence, a `math` fence, an image on a line of its own. Claude does not write them unprompted, so the mod tells it: it adds a note to the system prompt (`forms` in `mods/reply-media/hooks/register.tsx`). `reply-markdown` does the same for the forms it draws only when Claude chooses to write them: alerts, task lists, and a code fence for what you will copy. A note is added only where a reply is drawn on a terminal, not under `claude -p` or in an app, where the forms would come out as their source; a mod turned off adds none, and a form switched off in `/config` is left out of it. There is nothing to put in your `CLAUDE.md`.
 
 ## Options
 
-Each mod's options are rows in `/config`, and a change takes effect at once.
+Each mod's options are rows in `/config`, and a change takes effect at once. Every feature has a switch of its own: one turned off is drawn by Claude Code as it would be without the mod.
 
 | Mod | Option | Default | What it changes |
 | --- | --- | --- | --- |
 | all six | `enabled` | `true` | Turns the mod off without removing it. |
+| `reply-media` | `diagrams`, `math`, `images`, `videos` | `true` | Draws `mermaid` fences, formulas, local images, local videos. Off, that kind stays text, and Claude is not told to write it. |
+| `reply-media` | `buttons` | `true` | The copy and zoom (a video's open) buttons under a picture. |
 | `reply-media` | `pxPerColumn` | `8` | Pixels of a picture per terminal column. Lower draws pictures larger. |
 | `reply-media` | `cellAspect` | `2.17` | How many times taller than wide one terminal cell is. Change it when pictures look squashed or stretched. |
 | `reply-media` | `resumedReplies` | `3` | How many of a resumed session's last replies get their pictures drawn again. |
+| `reply-markdown` | `headings`, `lists`, `quotes`, `callouts`, `tables`, `rules`, `codeCards` | `true` | Restyles that kind of block. Off, Claude Code draws it, and Claude is not told to write alerts (`callouts`), task lists (`lists`) or a fence for what you will copy (`codeCards`). |
 | `reply-markdown` | `tableBorder` | `rules` | `rules`: no frame, a line under the header and a faint one between the rows. Or a frame: `round`, `single` or `bold`. |
 | `reply-markdown` | `cardBorder` | `round` | The border of a code card and of a callout box: `round`, `single` or `bold`. |
+| `shell-tail` | `rows` | `5` | The most rows the band takes. Past it, the newest shells are counted on one row: `+N more`. |
+| `test-summary` | `nodeTest`, `bunTest`, `tsc` | `true` | Summarizes that runner's output (`bunTest` covers `claude plugin test` too). Off, Claude Code draws it. |
+| `test-summary` | `failureLines` | `12` | How many lines of each failure's error are shown. `copy failures` copies them all. |
+| `turn-changes` | `autoOpen` | `false` | Opens the pane at a turn's first edit, where the terminal is wide enough. Off, `/changes` opens it. |
 
 ## Colors
 

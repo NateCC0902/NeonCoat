@@ -8,8 +8,8 @@ const changes = atom({ plugin: 'turn-changes', key: 'changes' } as const, { turn
 const open = atom({ plugin: 'turn-changes', key: 'open' } as const, null)
 const isDismissed = atom({ plugin: 'turn-changes', key: 'isDismissed' } as const, false)
 
-const PANE = 'turn-changes'
-const TITLE = 'Turn changes'
+// Esc at an idle, empty prompt closes it: inline above the prompt, it may have no close mark to press.
+const PANE = { id: 'turn-changes', title: 'Turn changes', closeOnEscape: true } as const
 
 type Written = BuiltinToolResults['Edit'] | BuiltinToolResults['Write']
 
@@ -35,8 +35,8 @@ const hunksOf = (result: Written): Hunk[] => {
 const unified = (hunks: Hunk[]) =>
   hunks.map(hunk => [`@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`, ...hunk.lines].join('\n')).join('\n')
 
-/** Adds an edit that went through to the turn's files, and opens the pane at the turn's first. */
-async function record($: EngineInterface, ran: ToolCallResult) {
+/** Adds an edit that went through to the turn's files, and opens the pane at the turn's first when `isOpened`. */
+async function record($: EngineInterface, ran: ToolCallResult, isOpened: boolean) {
   const result = ran.result as Written | undefined
   if (ran.deny !== undefined || ran.isError === true || result === undefined) {
     return
@@ -68,8 +68,8 @@ async function record($: EngineInterface, ran: ToolCallResult) {
   if (isFirst) {
     await update($, open, () => null)
     // Unasked, a pane is placed only where the terminal is wide enough for a sidebar.
-    if (!(await read($, isDismissed))) {
-      void $.ui.open({ id: PANE, title: TITLE })
+    if (isOpened && !(await read($, isDismissed))) {
+      void $.ui.open(PANE)
     }
   }
 }
@@ -78,6 +78,8 @@ export const register: Register = (on, options) => {
   if (options.enabled === false) {
     return
   }
+  // Off by default: then the pane opens by /changes alone.
+  const autoOpen = options.autoOpen === true
 
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'changes', description: 'Show the files the last turn changed, each with its diff, in a pane' })
@@ -87,12 +89,12 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: 'changes' }, async $ => {
     await update($, isDismissed, () => false)
-    const opened = await $.ui.open({ id: PANE, title: TITLE })
+    const opened = await $.ui.open(PANE)
 
     return { text: opened.isPlaced ? 'Opened the turn changes pane.' : `The turn changes pane is not shown: ${opened.reason}.` }
   })
 
-  on('ui.close', { id: PANE }, async ($, e, next) => {
+  on('ui.close', { id: PANE.id }, async ($, e, next) => {
     if (e.origin.kind === 'person') {
       await update($, isDismissed, () => true)
     }
@@ -111,19 +113,19 @@ export const register: Register = (on, options) => {
 
   on('tool.call', { tool: 'Edit' }, async ($, e, next) => {
     const ran = await next(e)
-    await record($, ran)
+    await record($, ran, autoOpen)
 
     return ran
   })
 
   on('tool.call', { tool: 'Write' }, async ($, e, next) => {
     const ran = await next(e)
-    await record($, ran)
+    await record($, ran, autoOpen)
 
     return ran
   })
 
-  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+  on('ui.render', { component: 'Pane', requestId: PANE.id }, async ($, e) => {
     const { Box, Text, Button, Code } = $.ui.resolve(e)
     const { files } = await read($, changes)
     const openPath = await read($, open)

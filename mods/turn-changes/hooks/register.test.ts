@@ -30,10 +30,12 @@ const WIDTH = hunk(99, 100, ['-const width = (text: string) =>', '-  [...text].l
  */
 const machine = (on: On) => {
   const opened: string[] = []
+  const closable: boolean[] = []
   const results: ToolCallResult[] = []
   on('session.root', () => ({ value: '/work' }))
   on('ui.open', (_, e) => {
     opened.push(e.id)
+    closable.push(e.closeOnEscape === true)
 
     return { value: { isPlaced: true as const } }
   })
@@ -41,7 +43,7 @@ const machine = (on: On) => {
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('tool.call', () => results.shift() ?? { deny: 'nothing queued' })
 
-  return { opened, results }
+  return { opened, closable, results }
 }
 
 const pane = ($: Engine) =>
@@ -58,8 +60,8 @@ const edit = ($: Engine, file: string) => $.tool.call({ tool: 'Edit', file_path:
 const keys = async (ui: { findAll: (query: { type: string }) => Promise<{ key: string | undefined }[]> }) =>
   (await ui.findAll({ type: 'Button' })).map(each => each.key)
 
-test("a turn's edits are listed by file, and a file's press shows each edit's diff", async ($, on) => {
-  const { opened, results } = machine(on)
+test("a turn's edits are listed by file, and a file's press shows each edit's diff", { options: { autoOpen: true } }, async ($, on) => {
+  const { opened, closable, results } = machine(on)
   await $.turn.start({ text: 'use string-width', turnId: 't1' })
   results.push(
     { result: edited('/work/hooks/register.tsx', [IMPORT]) },
@@ -72,6 +74,8 @@ test("a turn's edits are listed by file, and a file's press shows each edit's di
   const ui = await pane($)
 
   expect(opened).toEqual(['turn-changes'])
+  // Inline above the prompt it may have no close mark to press: Esc closes it.
+  expect(closable).toEqual([true])
   expect(await keys(ui)).toEqual(['file:hooks/register.tsx', 'file:package.json'])
   expect((await ui.find({ type: 'Text', text: '2 files' }))).toBeDefined()
   expect((await ui.findAll({ type: 'Text', text: /^\+\d+$/ })).map(each => each.text)).toEqual(['+5'])
@@ -92,7 +96,7 @@ test("a turn's edits are listed by file, and a file's press shows each edit's di
 })
 
 // The person's close of the pane is not raised here: a test's $ has no ui.close.
-test("the next turn's first edit starts a new list, and /changes opens the pane", async ($, on) => {
+test("the next turn's first edit starts a new list, and /changes opens the pane", { options: { autoOpen: true } }, async ($, on) => {
   const { opened, results } = machine(on)
   await $.turn.start({ text: 'one', turnId: 't1' })
   results.push({ result: edited('/work/a.ts', [IMPORT]) })
@@ -121,5 +125,19 @@ test('a refused or failed edit is not listed', async ($, on) => {
 
   expect(opened).toEqual([])
   expect(await ui.find({ type: 'Text', text: /^No file changed yet/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('by default the pane does not open by itself, and /changes opens it', async ($, on) => {
+  const { opened, results } = machine(on)
+  await $.turn.start({ text: 'one', turnId: 't1' })
+  results.push({ result: edited('/work/a.ts', [IMPORT]) })
+  await edit($, '/work/a.ts')
+  expect(opened).toEqual([])
+
+  await $.command.run({ command: 'changes', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  expect(opened).toEqual(['turn-changes'])
+  const ui = await pane($)
+  expect(await keys(ui)).toEqual(['file:a.ts'])
   await ui.unmount()
 })

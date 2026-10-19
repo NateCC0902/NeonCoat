@@ -9,6 +9,12 @@
       "title": "Enabled",
       "description": "Turn this mod off without removing it. Takes effect at once.",
       "default": true
+    },
+    "autoOpen": {
+      "type": "boolean",
+      "title": "Open by itself",
+      "description": "Open the pane at a turn's first edit, where the terminal is wide enough. Off, only /changes opens it.",
+      "default": false
     }
   }
 }

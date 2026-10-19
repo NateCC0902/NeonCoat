@@ -9,6 +9,32 @@
       "title": "Enabled",
       "description": "Turn this mod off without removing it. Takes effect at once.",
       "default": true
+    },
+    "nodeTest": {
+      "type": "boolean",
+      "title": "node --test",
+      "description": "Summarize a run of node --test (its spec reporter). Off, the engine draws its output.",
+      "default": true
+    },
+    "bunTest": {
+      "type": "boolean",
+      "title": "bun test and claude plugin test",
+      "description": "Summarize a run of bun test or claude plugin test. Off, the engine draws its output.",
+      "default": true
+    },
+    "tsc": {
+      "type": "boolean",
+      "title": "tsc",
+      "description": "Count tsc's type errors, each with its place. Off, the engine draws its output.",
+      "default": true
+    },
+    "failureLines": {
+      "type": "number",
+      "title": "Lines of each failure",
+      "description": "How many lines of a failure's error are shown under it, its stack left out. copy failures copies them all.",
+      "default": 12,
+      "min": 1,
+      "max": 100
     }
   }
 }

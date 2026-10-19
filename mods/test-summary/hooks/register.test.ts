@@ -175,3 +175,23 @@ test('a folded group draws each run under its count line, and output unfolds it'
   expect(expanded.at(-1)).toBe(false)
   await other.unmount()
 })
+
+test('a runner switched off leaves its output to the engine', { options: { nodeTest: false } }, async ($, on) => {
+  engine(on)
+  const ui = await result($, { stdout: NODE, stderr: '', interrupted: false })
+
+  expect(await ui.find({ type: 'Text' })).toBeUndefined()
+  expect(JSON.stringify(await ui.drawn())).toContain('"engine"')
+  await ui.unmount()
+})
+
+test('a failure shows as many lines of its error as the option says', { options: { failureLines: 2 } }, async ($, on) => {
+  engine(on)
+  const ui = await result($, { stdout: NODE, stderr: '', interrupted: false })
+  const shown = await texts(ui)
+
+  expect(shown).toContain('  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:')
+  expect(shown).toContain('  + actual - expected')
+  expect(shown).not.toContain('  +   height: 32,')
+  await ui.unmount()
+})

@@ -5,8 +5,9 @@ import type { Unfolded } from '../types'
 
 const unfolded = atom({ plugin: 'test-summary', key: 'unfolded' } as const, {} as Record<string, Unfolded>)
 
-// What one failure shows of its error; the whole output is a press away.
-const DETAIL_LINES = 12
+// The most a failure keeps of its error, its stack left out: the `failureLines`
+// option shows fewer, copy failures copies these, the whole output is a press away.
+const DETAIL_LIMIT = 100
 // Color codes and cursor moves, which a row would draw as junk.
 const ESCAPES = /\x1b\[[0-9;?]*[ -/]*[@-~]/g
 
@@ -34,7 +35,7 @@ const detail = (lines: string[]) => {
     kept.pop()
   }
 
-  return kept.slice(0, DETAIL_LINES)
+  return kept.slice(0, DETAIL_LIMIT)
 }
 
 /** `node --test`'s spec reporter: ✔ and ✖ lines, ℹ counts, then the failures again with their errors. */
@@ -132,11 +133,19 @@ function tsc(lines: string[]): Summary | undefined {
   return failures.length === 0 ? undefined : { kind: 'types', failures }
 }
 
-/** The run a command's output is, by the first reader that knows its form. */
-const summarize = (text: string) => {
-  const lines = text.replace(ESCAPES, '').split('\n').map(line => line.replace(/\r$/, ''))
+type Reader = (lines: string[]) => Summary | undefined
 
-  return node(lines) ?? bun(lines) ?? tsc(lines)
+/** The run a command's output is, by the first of the readers switched on that knows its form. */
+const summarize = (text: string, readers: readonly Reader[]) => {
+  const lines = text.replace(ESCAPES, '').split('\n').map(line => line.replace(/\r$/, ''))
+  for (const reader of readers) {
+    const summary = reader(lines)
+    if (summary !== undefined) {
+      return summary
+    }
+  }
+
+  return undefined
 }
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`
@@ -159,17 +168,17 @@ const outputText = (output: unknown) => {
 type Run = { id: string; summary: Summary }
 
 /** The run a Bash call's output reads as, once it has ended and unless an abort cut it. */
-const runOf = (id: string | undefined, output: unknown): Run | undefined => {
+const runOf = (id: string | undefined, output: unknown, readers: readonly Reader[]): Run | undefined => {
   if (id === undefined || output === undefined || (typeof output === 'object' && (output as { interrupted?: boolean }).interrupted)) {
     return undefined
   }
-  const summary = summarize(outputText(output))
+  const summary = summarize(outputText(output), readers)
 
   return summary === undefined ? undefined : { id, summary }
 }
 
 /** A run's count line with its buttons, its failures under it. */
-async function drawRun($: EngineInterface, { Box, Text, Button }: Elements['terminal'], { id, summary }: Run) {
+async function drawRun($: EngineInterface, { Box, Text, Button }: Elements['terminal'], { id, summary }: Run, failureLines: number) {
   const shown = (await read($, unfolded))[id] ?? {}
   const toggle = (key: keyof Unfolded) => () =>
     update($, unfolded, all => ({ ...all, [id]: { ...all[id], [key]: !all[id]?.[key] } }))
@@ -228,7 +237,7 @@ async function drawRun($: EngineInterface, { Box, Text, Button }: Elements['term
               <Text bold>{failure.name}</Text>
             </Box>
             {failure.at !== undefined && <Text color="subtle">{`  ${failure.at}`}</Text>}
-            {failure.detail.map(line => (
+            {failure.detail.slice(0, failureLines).map(line => (
               <Text color={line.startsWith('+') ? 'success' : line.startsWith('-') ? 'error' : undefined}>{`  ${line}`}</Text>
             ))}
           </Box>
@@ -252,10 +261,17 @@ export const register: Register = (on, options) => {
   if (options.enabled === false) {
     return
   }
+  // The runners switched on, read in this order; a run none knows is the engine's to draw.
+  const readers = [
+    options.nodeTest !== false && node,
+    options.bunTest !== false && bun,
+    options.tsc !== false && tsc,
+  ].filter(reader => reader !== false)
+  const failureLines = Math.max(1, Number(options.failureLines) || 12)
 
   // A command standing alone: its result block, the engine's own a press away.
   on('ui.render', { component: 'ToolResult', props: { tool: 'Bash' } }, async ($, e, next) => {
-    const run = e.surface === 'terminal' ? runOf(e.props.tool_use_id, e.props.output) : undefined
+    const run = e.surface === 'terminal' ? runOf(e.props.tool_use_id, e.props.output, readers) : undefined
     if (e.surface !== 'terminal' || run === undefined) {
       return next(e)
     }
@@ -264,7 +280,7 @@ export const register: Register = (on, options) => {
 
     return (
       <elements.Box flexDirection="column">
-        {await drawRun($, elements, run)}
+        {await drawRun($, elements, run, failureLines)}
         {shown.isOutputShown && (await next(e))}
       </elements.Box>
     )
@@ -275,7 +291,7 @@ export const register: Register = (on, options) => {
   // An unfolded group (--verbose, ctrl+o) draws each output whole: left as it is.
   on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
     const runs = e.props.calls
-      .map(call => (call.tool === 'Bash' && !call.isInterrupted ? runOf(call.tool_use_id, call.output) : undefined))
+      .map(call => (call.tool === 'Bash' && !call.isInterrupted ? runOf(call.tool_use_id, call.output, readers) : undefined))
       .filter(run => run !== undefined)
     if (e.surface !== 'terminal' || e.props.isExpanded || runs.length === 0) {
       return next(e)
@@ -285,7 +301,7 @@ export const register: Register = (on, options) => {
     const isOutputShown = runs.some(run => all[run.id]?.isOutputShown)
     const drawn = []
     for (const run of runs) {
-      drawn.push(await drawRun($, elements, run))
+      drawn.push(await drawRun($, elements, run, failureLines))
     }
 
     return (

@@ -17,16 +17,26 @@ const COLOR = {
   quote: '#ff60ff',
   ink: '#e8fe96',
 } as const
+// The `/config` switch of each kind of block the mod restyles. A block whose
+// switch is off goes back to the engine as the markdown it was written as.
+const SWITCHES = ['headings', 'lists', 'quotes', 'callouts', 'tables', 'rules', 'codeCards'] as const
+type Switch = (typeof SWITCHES)[number]
+
 // What Claude reads in its system prompt, so that it writes the forms the mod
-// draws only when Claude chooses to.
-const FORMS = [
-  'Formatting:',
-  '',
-  'The reply-markdown mod draws these forms in the terminal, so use them where they fit.',
-  'For a warning or a note the user must not miss, write a GitHub alert: a quote whose first line is `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]` or `[!CAUTION]`. It becomes a colored box.',
-  'For steps or checks to tick off, write a task list: `- [ ]` and `- [x]`.',
-  'Put a command or snippet the user will copy in a code fence of its own, with its language, not in inline code: the fence gets a copy button.',
-].join('\n')
+// draws only when Claude chooses to. A form switched off is not told.
+function forms(off: ReadonlySet<Switch>) {
+  const lines = [
+    !off.has('callouts') &&
+      'For a warning or a note the user must not miss, write a GitHub alert: a quote whose first line is `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]` or `[!CAUTION]`. It becomes a colored box.',
+    !off.has('lists') && 'For steps or checks to tick off, write a task list: `- [ ]` and `- [x]`.',
+    !off.has('codeCards') &&
+      'Put a command or snippet the user will copy in a code fence of its own, with its language, not in inline code: the fence gets a copy button.',
+  ].filter(line => line !== false)
+
+  return lines.length === 0
+    ? undefined
+    : ['Formatting:', '', 'The reply-markdown mod draws these forms in the terminal, so use them where they fit.', ...lines].join('\n')
+}
 // GitHub's five alerts, `> [!NOTE]` and the rest, in the palette's hues.
 const CALLOUT: Record<string, { label: string; color: string }> = {
   NOTE: { label: 'Note', color: '#00a4ff' },
@@ -239,6 +249,77 @@ function parse(text: string): Block[] {
   return blocks
 }
 
+/** The switch a block is drawn under; undefined for raw text. */
+function switchOf(block: Block): Switch | undefined {
+  switch (block.kind) {
+    case 'heading':
+      return 'headings'
+    case 'item':
+      return 'lists'
+    case 'quote':
+      return ALERT.test(block.text) ? 'callouts' : 'quotes'
+    case 'table':
+      return 'tables'
+    case 'rule':
+      return 'rules'
+    case 'code':
+      return 'codeCards'
+    default:
+      return undefined
+  }
+}
+
+/** A block as markdown again, near enough to what was written for the engine to draw it. */
+function markdownOf(block: Block): string {
+  switch (block.kind) {
+    case 'raw':
+      return block.text
+    case 'heading':
+      return `${'#'.repeat(block.level)} ${block.text}`
+    case 'item': {
+      const indent = ' '.repeat(block.depth * 2)
+
+      return block.text
+        .split('\n')
+        .map((line, index) => (index === 0 ? `${indent}${block.marker} ${line}` : `${indent}  ${line}`))
+        .join('\n')
+    }
+    case 'quote':
+      return block.text
+        .split('\n')
+        .map(line => `> ${line}`)
+        .join('\n')
+    case 'table':
+      return block.source
+    case 'rule':
+      return '---'
+    case 'code': {
+      // Longer than any run of backticks inside, so that the fence holds.
+      const ticks = '`'.repeat(Math.max(3, ...(block.source.match(/`+/g) ?? []).map(run => run.length + 1)))
+
+      return `${ticks}${block.language}\n${block.source}\n${ticks}`
+    }
+  }
+}
+
+/** The blocks with each one switched off made raw text again, joined to the raw text beside it. */
+function restyle(blocks: Block[], off: ReadonlySet<Switch>) {
+  const kept: Block[] = []
+  for (const block of blocks) {
+    const name = switchOf(block)
+    const each: Block =
+      name !== undefined && off.has(name) ? { kind: 'raw', text: markdownOf(block), hasGapAbove: block.hasGapAbove } : block
+    const last = kept.at(-1)
+    if (each.kind === 'raw' && last?.kind === 'raw') {
+      last.text += (each.hasGapAbove ? '\n\n' : '\n') + each.text
+    } else {
+      kept.push(each)
+    }
+  }
+
+  return kept
+}
+
 export const register: Register = (on, options) => {
   if (options.enabled === false) {
     return
@@ -248,6 +329,8 @@ export const register: Register = (on, options) => {
   // default: for a table, no frame (`rules`).
   const frame = FRAME[String(options.tableBorder)]
   const cardBorder = String(options.cardBorder) in FRAME ? String(options.cardBorder) : 'round'
+  const off = new Set(SWITCHES.filter(name => options[name] === false))
+  const told = forms(off)
 
   // Told only where a terminal draws the reply: under `-p`, the SDK or an app
   // the forms would not be drawn.
@@ -255,8 +338,8 @@ export const register: Register = (on, options) => {
     const composed = await next(e)
     const isDrawn = e.surfaces.includes('terminal')
 
-    return isDrawn
-      ? { sections: [...composed.sections, { id: 'reply-markdown:forms', text: FORMS, scope: 'session' }] }
+    return isDrawn && told !== undefined
+      ? { sections: [...composed.sections, { id: 'reply-markdown:forms', text: told, scope: 'session' }] }
       : composed
   })
 
@@ -265,7 +348,7 @@ export const register: Register = (on, options) => {
       return next(e)
     }
 
-    const blocks = parse(e.props.text)
+    const blocks = restyle(parse(e.props.text), off)
 
     if (blocks.every(block => block.kind === 'raw')) {
       return next(e)

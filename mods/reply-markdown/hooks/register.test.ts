@@ -293,3 +293,50 @@ test(
     await ui.unmount()
   },
 )
+
+test('a kind switched off goes back to the engine as markdown, joined to the text beside it', { options: { headings: false, lists: false } }, async ($, on) => {
+  const drawn = engine(on)
+  const ui = await mount($, TEXT)
+
+  expect(drawn).toEqual(['Intro paragraph.\n\n# Title\n## Section `one`\n- first **item**\n  wrapped line\n  - nested\n1. step'])
+  // The rule and the code card are still the mod's.
+  expect(await ui.find({ type: 'Text', text: /^─+$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Code' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('with callouts off an alert is the engine\'s quote', { options: { callouts: false } }, async ($, on) => {
+  const drawn = engine(on)
+  const ui = await mount($, '> [!WARNING]\n> Careful')
+
+  expect(drawn).toEqual(['> [!WARNING]\n> Careful'])
+  await ui.unmount()
+})
+
+test('with code cards off a fence is the engine\'s, its fence holding the backticks inside', { options: { codeCards: false } }, async ($, on) => {
+  const drawn = engine(on)
+  const ui = await mount($, 'Run:\n\n````md\n```ts\nx\n```\n````\n\n## Next')
+
+  expect(drawn).toEqual(['Run:\n\n````md\n```ts\nx\n```\n````'])
+  expect(await ui.find({ type: 'Code' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a form switched off is not told, and none is told with all three off', async ($, on) => {
+  on('prompt.compose', () => ({ sections: [] }))
+  const surfaces: RenderSurface[] = ['terminal']
+  const input = { model: 'test', promptModel: 'test', surfaces, tools: [], outputStyle: null, traits: [] }
+  const text = (await $.prompt.compose(input)).sections.find(section => section.id === 'reply-markdown:forms')?.text
+
+  expect(text).toContain('GitHub alert')
+  expect(text).toContain('task list')
+  expect(text).toContain('copy button')
+})
+
+test('with callouts, lists and code cards off, Claude is told no forms', { options: { callouts: false, lists: false, codeCards: false } }, async ($, on) => {
+  on('prompt.compose', () => ({ sections: [] }))
+  const surfaces: RenderSurface[] = ['terminal']
+  const input = { model: 'test', promptModel: 'test', surfaces, tools: [], outputStyle: null, traits: [] }
+
+  expect((await $.prompt.compose(input)).sections.map(section => section.id)).toEqual([])
+})

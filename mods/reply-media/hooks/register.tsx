@@ -9,28 +9,51 @@ const playing = atom({ plugin: 'reply-media', key: 'playing' } as const, null)
 const PANE = 'picture-zoom'
 // What `![alt](path)` plays rather than shows, told by the path's extension.
 const VIDEO = /\.(mp4|m4v|mov|webm|mkv|gif)$/i
+// The kinds of block the mod draws: the `/config` switch of each, and the
+// renderer script that draws it.
+const KINDS = [
+  ['diagrams', 'render'],
+  ['math', 'math'],
+  ['images', 'picture'],
+  ['videos', 'video'],
+] as const
+type Script = (typeof KINDS)[number][1]
+
 // What Claude reads in its system prompt, so that it writes the blocks the mod
-// draws: Claude writes none of them unprompted.
-const FORMS = [
-  'Diagrams:',
-  '',
-  'Draw diagrams in replies as ```mermaid code fences, never as ASCII art. The reply-media mod turns each fence into a picture in the terminal.',
-  'Use only these types, the rest do not render: flowchart, stateDiagram-v2, sequenceDiagram, classDiagram, erDiagram, xychart-beta.',
-  'Start the fence at column 0: an indented fence (inside a list item or a quote) is not picked up.',
-  "Prefer flowchart LR: a TD chart with more than a few nodes fills the terminal's height.",
-  'Directory trees and tables are not diagrams: keep them as text.',
-  '',
-  'Math:',
-  '',
-  'Write a formula that stands on a line of its own as LaTeX in a ```math code fence, one formula per fence, starting at column 0. The same mod turns it into a picture. Leave out `\\tag`: a tagged formula is not drawn.',
-  'Write math inside a sentence in Unicode (a⃗ · b⃗ = |a||b|cos θ), never as `$x$`: a picture cannot sit inside a line of text.',
-  '',
-  'Images:',
-  '',
-  "To show an image file from this machine, write `![alt](path)` on a line of its own, starting at column 0. The same mod draws it. The path is absolute, under `~/`, or relative to the session's working directory. An image at a URL is not fetched, so give its link as text.",
-  'A video file (mp4, mov, webm, mkv, gif) written the same way is shown as its first frame with a play button.',
-  'For a drawing mermaid cannot make (a UI sketch, a layout, an annotated picture), write an SVG file to the scratchpad and show it with the image form above.',
-].join('\n')
+// draws: Claude writes none of them unprompted. A kind switched off is not
+// told, so Claude does not write a block that would stay its source.
+function forms(drawn: ReadonlySet<Script>) {
+  const isImage = drawn.has('picture')
+  const isVideo = drawn.has('video')
+  const notes = [
+    drawn.has('render') && [
+      'Diagrams:',
+      '',
+      'Draw diagrams in replies as ```mermaid code fences, never as ASCII art. The reply-media mod turns each fence into a picture in the terminal.',
+      'Use only these types, the rest do not render: flowchart, stateDiagram-v2, sequenceDiagram, classDiagram, erDiagram, xychart-beta.',
+      'Start the fence at column 0: an indented fence (inside a list item or a quote) is not picked up.',
+      "Prefer flowchart LR: a TD chart with more than a few nodes fills the terminal's height.",
+      'Directory trees and tables are not diagrams: keep them as text.',
+    ],
+    drawn.has('math') && [
+      'Math:',
+      '',
+      'Write a formula that stands on a line of its own as LaTeX in a ```math code fence, one formula per fence, starting at column 0. The reply-media mod turns it into a picture. Leave out `\\tag`: a tagged formula is not drawn.',
+      'Write math inside a sentence in Unicode (a⃗ · b⃗ = |a||b|cos θ), never as `$x$`: a picture cannot sit inside a line of text.',
+    ],
+    (isImage || isVideo) && [
+      'Images:',
+      '',
+      isImage
+        ? "To show an image file from this machine, write `![alt](path)` on a line of its own, starting at column 0. The reply-media mod draws it. The path is absolute, under `~/`, or relative to the session's working directory. An image at a URL is not fetched, so give its link as text."
+        : "To show a video file from this machine (mp4, mov, webm, mkv, gif), write `![alt](path)` on a line of its own, starting at column 0. The reply-media mod shows its first frame with a play button. The path is absolute, under `~/`, or relative to the session's working directory.",
+      ...(isImage && isVideo ? ['A video file (mp4, mov, webm, mkv, gif) written the same way is shown as its first frame with a play button.'] : []),
+      ...(isImage ? ['For a drawing mermaid cannot make (a UI sketch, a layout, an annotated picture), write an SVG file to the scratchpad and show it with the image form above.'] : []),
+    ],
+  ].filter(note => note !== false)
+
+  return notes.length === 0 ? undefined : notes.map(note => note.join('\n')).join('\n\n')
+}
 
 // A Button's key, from what it copies: a reply is drawn in parts when two mods
 // draw it between them, so a count kept by one part would repeat in the next.
@@ -49,9 +72,15 @@ const BLOCK =
 
 /**
  * The renderer script that draws a block and what that script reads, or
- * undefined for a block the mod leaves as text.
+ * undefined for a block the mod leaves as text, its kind switched off too.
  */
-function classify(block: string) {
+function classify(block: string, drawn: ReadonlySet<Script>) {
+  const job = kindOf(block)
+
+  return job !== undefined && drawn.has(job.script) ? job : undefined
+}
+
+function kindOf(block: string): { script: Script; source: string } | undefined {
   const fence = /^```([^\n]*)\n([\s\S]*)\n```[ \t]*$/.exec(block)
   if (fence) {
     const [, info = '', source = ''] = fence
@@ -111,12 +140,12 @@ function isGone($: EngineInterface, file: string) {
  * Renders each block of `text` that has no outcome yet, and records it;
  * `isForced` renders the ones that have an outcome too.
  */
-async function render($: EngineInterface, text: string, isForced = false) {
+async function render($: EngineInterface, text: string, drawn: ReadonlySet<Script>, isForced = false) {
   const known = await read($, diagrams)
   const cwd = await $.session.cwd()
 
   for (const [block] of text.matchAll(BLOCK)) {
-    const job = classify(block)
+    const job = classify(block, drawn)
     // An image or a video is read again each time it is shown: the file
     // behind an unchanged path may be a new one.
     const isFile = job?.script === 'picture' || job?.script === 'video'
@@ -217,6 +246,10 @@ export const register: Register = (on, options) => {
   const cellAspect = Number(options.cellAspect)
   const pxPerColumn = Number(options.pxPerColumn)
   const resumedReplies = Number(options.resumedReplies)
+  const drawn = new Set(KINDS.filter(([option]) => options[option] !== false).map(([, script]) => script))
+  const told = forms(drawn)
+  // Under a picture: copy its source, and zoom it (a video: open it in the player).
+  const hasButtons = options.buttons !== false
 
   // Told only where a terminal draws the reply: under `-p`, the SDK or an app
   // the forms would come out as their source.
@@ -224,8 +257,8 @@ export const register: Register = (on, options) => {
     const composed = await next(e)
     const isDrawn = e.surfaces.includes('terminal')
 
-    return isDrawn
-      ? { sections: [...composed.sections, { id: 'reply-media:forms', text: FORMS, scope: 'session' }] }
+    return isDrawn && told !== undefined
+      ? { sections: [...composed.sections, { id: 'reply-media:forms', text: told, scope: 'session' }] }
       : composed
   })
 
@@ -237,7 +270,7 @@ export const register: Register = (on, options) => {
 
     for (const block of e.message.content) {
       if (typeof block.text === 'string') {
-        await render($, block.text)
+        await render($, block.text, drawn)
       }
     }
 
@@ -256,7 +289,7 @@ export const register: Register = (on, options) => {
     // `slice(-0)` would keep every reply. A session no terminal draws gets none.
     const count = e.surface === 'terminal' ? resumedReplies : 0
     for (const reply of count > 0 ? replies.slice(-count) : []) {
-      await render($, reply.text)
+      await render($, reply.text, drawn)
     }
 
     return next(e)
@@ -275,19 +308,20 @@ export const register: Register = (on, options) => {
     )[] = []
     let text = ''
     for (const [index, part] of e.props.text.split(BLOCK).entries()) {
-      let outcome = index % 2 === 1 ? known[part] : undefined
+      // A kind switched off keeps its block as text, drawn before or not.
+      let outcome = index % 2 === 1 && classify(part, drawn) !== undefined ? known[part] : undefined
       // The temp folder is swept after some days. The block is text again
       // while its picture is drawn again from it.
       if (outcome && !('error' in outcome) && (await isGone($, outcome.file))) {
         outcome = undefined
         if (!redrawn.has(part)) {
           redrawn.add(part)
-          void render($, part, true)
+          void render($, part, drawn, true)
         }
       }
 
       if (outcome) {
-        const job = classify(part)
+        const job = classify(part, drawn)
         const alt = job?.source ?? part
         const isFile = job?.script === 'picture' || job?.script === 'video'
         pieces.push(
@@ -394,6 +428,7 @@ export const register: Register = (on, options) => {
                 onPress={() => toggle($, site, `view:${key}`, block)}
               />
             )}
+            {hasButtons && (
             <Button
               key={`copy:${key}`}
               label={piece.isFile ? 'copy path' : 'copy source'}
@@ -406,7 +441,8 @@ export const register: Register = (on, options) => {
                 $.ui.toast(copied.isCopied ? 'Copied' : `Not copied: ${copied.reason}`)
               }}
             />
-            {clip === undefined ? (
+            )}
+            {!hasButtons ? undefined : clip === undefined ? (
               <Button
                 key={`zoom:${key}`}
                 label="zoom"
@@ -492,7 +528,7 @@ export const register: Register = (on, options) => {
           source={{ file: diagram.file, format: 'png' }}
           columns={Math.max(1, columns)}
           rows={Math.max(1, isTooTall ? tall : rows)}
-          alt={classify(block)?.source ?? block}
+          alt={classify(block, drawn)?.source ?? block}
         />
       </Box>
     )

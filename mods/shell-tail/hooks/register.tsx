@@ -185,6 +185,8 @@ export const register: Register = (on, options) => {
   if (options.enabled === false) {
     return
   }
+  // The most rows the band takes; the shells past them are counted on one more.
+  const rows = Math.max(1, Number(options.rows) || 5)
 
   // A reload keeps the shells but starts the module over: watch them again.
   on('session.start', async ($, e, next) => {
@@ -217,13 +219,14 @@ export const register: Register = (on, options) => {
 
     const { Box, Text } = $.ui.resolve(e)
     const beneath = await next(e)
+    const shown = running.length > rows ? running.slice(0, rows - 1) : running
 
     // The engine's own node may not sit under a sized Box: only the rows are sized.
     // The dot is the one accent, in the theme's color for background work, as on the footer's shell count.
     return (
       <Box flexDirection="column">
         <Box flexDirection="column" width={e.props.bodyColumns}>
-          {running.map(shell => (
+          {shown.map(shell => (
             <Box key={shell.file} flexDirection="row" columnGap={2}>
               <Box flexDirection="row" columnGap={1}>
                 <Text color="background">●</Text>
@@ -238,6 +241,12 @@ export const register: Register = (on, options) => {
               </Box>
             </Box>
           ))}
+          {shown.length < running.length && (
+            <Box flexDirection="row" columnGap={1}>
+              <Text color="background">●</Text>
+              <Text color="subtle">+{running.length - shown.length} more</Text>
+            </Box>
+          )}
         </Box>
         {beneath}
       </Box>

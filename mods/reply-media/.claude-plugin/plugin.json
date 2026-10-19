@@ -10,6 +10,36 @@
       "description": "Turn this mod off without removing it. Takes effect at once.",
       "default": true
     },
+    "diagrams": {
+      "type": "boolean",
+      "title": "Diagrams",
+      "description": "Draw a ```mermaid fence as a picture. Off, the fence stays text, and Claude is not told to draw diagrams that way.",
+      "default": true
+    },
+    "math": {
+      "type": "boolean",
+      "title": "Formulas",
+      "description": "Draw a ```math fence or a $$ block as a picture. Off, the formula stays text, and Claude is not told to write formulas that way.",
+      "default": true
+    },
+    "images": {
+      "type": "boolean",
+      "title": "Images",
+      "description": "Draw a local image written as ![alt](path) on a line of its own. Off, the line stays text, and Claude is not told to show images that way.",
+      "default": true
+    },
+    "videos": {
+      "type": "boolean",
+      "title": "Videos",
+      "description": "Show a local video written as ![alt](path) as its first frame with a play button. Off, the line stays text, and Claude is not told to show videos that way.",
+      "default": true
+    },
+    "buttons": {
+      "type": "boolean",
+      "title": "Buttons under a picture",
+      "description": "Copy a picture's source (an image's path), and zoom it in a pane, or open a video in the player. A video's play button stays.",
+      "default": true
+    },
     "resumedReplies": {
       "type": "number",
       "title": "Replies redrawn on resume",

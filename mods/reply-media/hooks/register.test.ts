@@ -447,3 +447,58 @@ test('a video is drawn as its first frame, and plays frame by frame once it is c
   expect(ran).toHaveLength(2)
   await ui.unmount()
 })
+
+/** The forms note Claude is told on a terminal, or undefined when none is. */
+const told = async ($: Engine) => {
+  const surfaces: RenderSurface[] = ['terminal']
+  const input = { model: 'test', promptModel: 'test', surfaces, tools: [], outputStyle: null, traits: [] }
+
+  return (await $.prompt.compose(input)).sections.find(section => section.id === 'reply-media:forms')?.text
+}
+
+test('a kind switched off stays text, and Claude is not told to write it', { options: { diagrams: false } }, async ($, on) => {
+  on('prompt.compose', () => ({ sections: [] }))
+  const ran: (readonly string[])[] = []
+  on('process.run', (_, e) => {
+    ran.push(e.argv)
+
+    return { value: { ...RAN, stdout: JSON.stringify(DIAGRAM) } }
+  })
+  const drawn = engine(on)
+  const ui = await reply($, 'row-diagrams-off')
+
+  expect(ran).toEqual([])
+  expect(await ui.find({ type: 'Image' })).toBeUndefined()
+  expect(drawn.at(-1)).toBe(TEXT)
+  await ui.unmount()
+
+  const text = await told($)
+  expect(text).not.toContain('Diagrams:')
+  expect(text).toContain('Math:')
+  expect(text).toContain('Images:')
+})
+
+test('with every kind off, Claude is told nothing', { options: { diagrams: false, math: false, images: false, videos: false } }, async ($, on) => {
+  on('prompt.compose', () => ({ sections: [] }))
+
+  expect(await told($)).toBeUndefined()
+})
+
+test('videos alone are told as their own form', { options: { images: false } }, async ($, on) => {
+  on('prompt.compose', () => ({ sections: [] }))
+  const text = (await told($)) ?? ''
+
+  expect(text).toContain('To show a video file')
+  expect(text).not.toContain('To show an image file')
+  expect(text).not.toContain('SVG')
+})
+
+test('the buttons under a picture can be switched off', { options: { buttons: false } }, async ($, on) => {
+  on('process.run', () => ({ value: { ...RAN, stdout: JSON.stringify(DIAGRAM) } }))
+  engine(on)
+  const ui = await reply($, 'row-no-buttons')
+
+  expect(await ui.find({ type: 'Image' })).toBeDefined()
+  expect(await ui.findAll({ type: 'Button' })).toEqual([])
+  await ui.unmount()
+})
