@@ -138,3 +138,40 @@ test('any other output is the engine\'s to draw', async ($, on) => {
   expect(JSON.stringify(await ui.drawn())).toContain('"engine"')
   await ui.unmount()
 })
+
+test('a folded group draws each run under its count line, and output unfolds it', async ($, on) => {
+  const expanded: boolean[] = []
+  on('ui.render', { component: 'ToolGroup' }, (_, e) => {
+    expanded.push(e.props.isExpanded)
+
+    return { type: 'engine' as const, ref: 0 }
+  })
+  const group = (output: unknown) =>
+    $.ui.mount({
+      plugin: 'test-summary',
+      surface: 'terminal',
+      component: 'ToolGroup',
+      requestId: 'group',
+      props: {
+        calls: [
+          { tool_use_id: 'read', tool: 'Read', input: {}, isRunning: false, isErrored: false, isInterrupted: false, output: '' },
+          { tool_use_id: 'run', tool: 'Bash', input: {}, isRunning: false, isErrored: true, isInterrupted: false, output },
+        ],
+        isActive: false,
+        isExpanded: false,
+      },
+    })
+
+  const ui = await group(`Exit code 1\n${NODE}`)
+  expect((await texts(ui)).slice(0, 4)).toEqual(['  ⎿  ', '✗ 2 failed', ' · ', '✓ 14 passed'])
+  expect(JSON.stringify(await ui.drawn())).toContain('"engine"')
+  await ui.press({ key: 'output:run' })
+  expect(expanded.at(-1)).toBe(true)
+  expect(await ui.find({ type: 'Button', key: 'output:run' })).toMatchObject({ props: { label: 'hide output' } })
+  await ui.unmount()
+
+  const other = await group({ stdout: 'On branch main', stderr: '', interrupted: false })
+  expect(await other.find({ type: 'Text' })).toBeUndefined()
+  expect(expanded.at(-1)).toBe(false)
+  await other.unmount()
+})

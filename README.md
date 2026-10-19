@@ -12,6 +12,8 @@ Mods and a status line for [Claude Code](https://claude.com/claude-code). A repl
 | `mods/reply-markdown/` | Draws headings, lists, task lists, quotes, callouts (`> [!WARNING]`), rules and tables in color, and puts each code fence in a card with a copy button. |
 | `mods/skill-router/` | `/skill-router <question>` asks a small model which of your user-only skills fits the question. With no question it lists them. |
 | `mods/shell-tail/` | Lists every shell Claude started that is still running, background ones included, in a band above the prompt: its command, how long it has run, how many lines it wrote, and its last line. |
+| `mods/test-summary/` | Draws a test or type-check run (`node --test`, `bun test`, `claude plugin test`, `tsc`) as one count line with each failure and its error under it. The passing tests, a copy of the failures and the whole output are a press away. |
+| `mods/turn-changes/` | Lists the files the last turn changed in a pane, each with its diff a press away. The pane opens by itself where the terminal is wide enough; `/changes` opens it anywhere. |
 | `statusline.mjs` | The status line. First row: context used, cost, model, tokens per second, folder, cache hit rate, git state. Second row: subscription windows and when they refill, Remote Control, and the other sessions running on the machine. |
 
 ## What `reply-markdown` draws
@@ -51,7 +53,7 @@ Then point `~/.claude/settings.json` at the clone. `CLAUDE_CODE_PLUGIN_DIRS` is 
 ```json
 {
   "env": {
-    "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/NeonCoat/mods/reply-media:/path/to/NeonCoat/mods/reply-markdown:/path/to/NeonCoat/mods/skill-router:/path/to/NeonCoat/mods/shell-tail"
+    "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/NeonCoat/mods/reply-media:/path/to/NeonCoat/mods/reply-markdown:/path/to/NeonCoat/mods/skill-router:/path/to/NeonCoat/mods/shell-tail:/path/to/NeonCoat/mods/test-summary:/path/to/NeonCoat/mods/turn-changes"
   },
   "statusLine": {
     "type": "command",
@@ -74,7 +76,7 @@ Each mod's options are rows in `/config`, and a change takes effect at once.
 
 | Mod | Option | Default | What it changes |
 | --- | --- | --- | --- |
-| all four | `enabled` | `true` | Turns the mod off without removing it. |
+| all six | `enabled` | `true` | Turns the mod off without removing it. |
 | `reply-media` | `pxPerColumn` | `8` | Pixels of a picture per terminal column. Lower draws pictures larger. |
 | `reply-media` | `cellAspect` | `2.17` | How many times taller than wide one terminal cell is. Change it when pictures look squashed or stretched. |
 | `reply-media` | `resumedReplies` | `3` | How many of a resumed session's last replies get their pictures drawn again. |

@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { Register } from 'claude-code'
+import type { Elements, EngineInterface, Register } from 'claude-code'
 
 import type { Unfolded } from '../types'
 
@@ -156,98 +156,143 @@ const outputText = (output: unknown) => {
   return `${stdout}\n${stderr}`
 }
 
+type Run = { id: string; summary: Summary }
+
+/** The run a Bash call's output reads as, once it has ended and unless an abort cut it. */
+const runOf = (id: string | undefined, output: unknown): Run | undefined => {
+  if (id === undefined || output === undefined || (typeof output === 'object' && (output as { interrupted?: boolean }).interrupted)) {
+    return undefined
+  }
+  const summary = summarize(outputText(output))
+
+  return summary === undefined ? undefined : { id, summary }
+}
+
+/** A run's count line with its buttons, its failures under it. */
+async function drawRun($: EngineInterface, { Box, Text, Button }: Elements['terminal'], { id, summary }: Run) {
+  const shown = (await read($, unfolded))[id] ?? {}
+  const toggle = (key: keyof Unfolded) => () =>
+    update($, unfolded, all => ({ ...all, [id]: { ...all[id], [key]: !all[id]?.[key] } }))
+  const failed = summary.kind === 'tests' ? summary.failed : summary.failures.length
+
+  const count =
+    summary.kind === 'types' ? (
+      <Text color="error" bold>
+        ✗ {plural(failed, 'type error')}
+      </Text>
+    ) : (
+      <Box flexDirection="row">
+        {failed > 0 && (
+          <Text color="error" bold>
+            ✗ {failed} failed
+          </Text>
+        )}
+        {failed > 0 && <Text dimColor> · </Text>}
+        <Text color="success" bold={failed === 0}>
+          ✓ {summary.passedCount} passed
+        </Text>
+        {summary.seconds !== undefined && <Text dimColor> · {summary.seconds.toFixed(1)}s</Text>}
+      </Box>
+    )
+
+  return (
+    <Box flexDirection="column">
+      <Box flexDirection="row">
+        <Text dimColor>{'  ⎿  '}</Text>
+        {count}
+        <Text>{'    '}</Text>
+        {summary.kind === 'tests' && summary.passed.length > 0 && (
+          <Button key={`passed:${id}`} plain dimColor label={shown.isPassedShown ? 'hide passed' : 'show passed'} onPress={toggle('isPassedShown')} />
+        )}
+        {summary.failures.length > 0 && <Text>{'  '}</Text>}
+        {summary.failures.length > 0 && (
+          <Button
+            key={`copy:${id}`}
+            plain
+            dimColor
+            label="copy failures"
+            onPress={async press => {
+              const copied = await $.ui.copy({ text: failureText(summary), surface: press.surface })
+              $.ui.toast(copied.isCopied ? 'Copied' : `Not copied: ${copied.reason}`)
+            }}
+          />
+        )}
+        <Text>{'  '}</Text>
+        <Button key={`output:${id}`} plain dimColor label={shown.isOutputShown ? 'hide output' : 'output'} onPress={toggle('isOutputShown')} />
+      </Box>
+      <Box flexDirection="column" paddingLeft={5}>
+        {summary.failures.map(failure => (
+          <Box flexDirection="column" marginTop={1}>
+            <Box flexDirection="row">
+              <Text color="error">✗ </Text>
+              <Text bold>{failure.name}</Text>
+            </Box>
+            {failure.at !== undefined && <Text dimColor>{`  ${failure.at}`}</Text>}
+            {failure.detail.map(line => (
+              <Text color={line.startsWith('+') ? 'success' : line.startsWith('-') ? 'error' : undefined}>{`  ${line}`}</Text>
+            ))}
+          </Box>
+        ))}
+        {summary.kind === 'tests' && shown.isPassedShown && (
+          <Box flexDirection="column" marginTop={1}>
+            {summary.passed.map(test => (
+              <Box flexDirection="row">
+                <Text color="success">✓ </Text>
+                <Text dimColor>{test.ms === undefined ? test.name : `${test.name} (${Math.round(test.ms)}ms)`}</Text>
+              </Box>
+            ))}
+          </Box>
+        )}
+      </Box>
+    </Box>
+  )
+}
+
 export const register: Register = (on, options) => {
   if (options.enabled === false) {
     return
   }
 
+  // A command standing alone: its result block, the engine's own a press away.
   on('ui.render', { component: 'ToolResult', props: { tool: 'Bash' } }, async ($, e, next) => {
-    const output = e.props.output as { interrupted?: boolean } | string | undefined
-    const summary = e.surface === 'terminal' && typeof output !== 'undefined' && !(typeof output === 'object' && output.interrupted)
-      ? summarize(outputText(output))
-      : undefined
-    if (summary === undefined) {
+    const run = e.surface === 'terminal' ? runOf(e.props.tool_use_id, e.props.output) : undefined
+    if (e.surface !== 'terminal' || run === undefined) {
       return next(e)
     }
-
-    const id = e.props.tool_use_id
-    const shown = (await read($, unfolded))[id] ?? {}
-    const toggle = (key: keyof Unfolded) => () =>
-      update($, unfolded, all => ({ ...all, [id]: { ...all[id], [key]: !all[id]?.[key] } }))
-    const { Box, Text, Button } = $.ui.resolve(e)
-    const failed = summary.kind === 'tests' ? summary.failed : summary.failures.length
-
-    const count =
-      summary.kind === 'types' ? (
-        <Text color="error" bold>
-          ✗ {plural(failed, 'type error')}
-        </Text>
-      ) : (
-        <>
-          {failed > 0 && (
-            <Text color="error" bold>
-              ✗ {failed} failed
-            </Text>
-          )}
-          {failed > 0 && <Text dimColor> · </Text>}
-          <Text color="success" bold={failed === 0}>
-            ✓ {summary.passedCount} passed
-          </Text>
-          {summary.seconds !== undefined && <Text dimColor> · {summary.seconds.toFixed(1)}s</Text>}
-        </>
-      )
+    const elements = $.ui.resolve(e)
+    const shown = (await read($, unfolded))[run.id] ?? {}
 
     return (
-      <Box flexDirection="column">
-        <Box flexDirection="row">
-          <Text dimColor>{'  ⎿  '}</Text>
-          {count}
-          <Text>{'    '}</Text>
-          {summary.kind === 'tests' && summary.passed.length > 0 && (
-            <Button key={`passed:${id}`} plain dimColor label={shown.isPassedShown ? 'hide passed' : 'show passed'} onPress={toggle('isPassedShown')} />
-          )}
-          {summary.failures.length > 0 && <Text>{'  '}</Text>}
-          {summary.failures.length > 0 && (
-            <Button
-              key={`copy:${id}`}
-              plain
-              dimColor
-              label="copy failures"
-              onPress={async press => {
-                const copied = await $.ui.copy({ text: failureText(summary), surface: press.surface })
-                $.ui.toast(copied.isCopied ? 'Copied' : `Not copied: ${copied.reason}`)
-              }}
-            />
-          )}
-          <Text>{'  '}</Text>
-          <Button key={`output:${id}`} plain dimColor label={shown.isOutputShown ? 'hide output' : 'output'} onPress={toggle('isOutputShown')} />
-        </Box>
-        <Box flexDirection="column" paddingLeft={5}>
-          {summary.failures.map(failure => (
-            <Box flexDirection="column" marginTop={1}>
-              <Box flexDirection="row">
-                <Text color="error">✗ </Text>
-                <Text bold>{failure.name}</Text>
-              </Box>
-              {failure.at !== undefined && <Text dimColor>{`  ${failure.at}`}</Text>}
-              {failure.detail.map(line => (
-                <Text color={line.startsWith('+') ? 'success' : line.startsWith('-') ? 'error' : undefined}>{`  ${line}`}</Text>
-              ))}
-            </Box>
-          ))}
-          {summary.kind === 'tests' && shown.isPassedShown && (
-            <Box flexDirection="column" marginTop={1}>
-              {summary.passed.map(test => (
-                <Box flexDirection="row">
-                  <Text color="success">✓ </Text>
-                  <Text dimColor>{test.ms === undefined ? test.name : `${test.name} (${Math.round(test.ms)}ms)`}</Text>
-                </Box>
-              ))}
-            </Box>
-          )}
-        </Box>
+      <elements.Box flexDirection="column">
+        {await drawRun($, elements, run)}
         {shown.isOutputShown && (await next(e))}
-      </Box>
+      </elements.Box>
+    )
+  })
+
+  // Commands the transcript folds into a count line (`Ran 2 shell commands`) draw no result block:
+  // each run's summary goes under the line, and its output button unfolds the group.
+  // An unfolded group (--verbose, ctrl+o) draws each output whole: left as it is.
+  on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
+    const runs = e.props.calls
+      .map(call => (call.tool === 'Bash' && !call.isInterrupted ? runOf(call.tool_use_id, call.output) : undefined))
+      .filter(run => run !== undefined)
+    if (e.surface !== 'terminal' || e.props.isExpanded || runs.length === 0) {
+      return next(e)
+    }
+    const elements = $.ui.resolve(e)
+    const all = await read($, unfolded)
+    const isOutputShown = runs.some(run => all[run.id]?.isOutputShown)
+    const drawn = []
+    for (const run of runs) {
+      drawn.push(await drawRun($, elements, run))
+    }
+
+    return (
+      <elements.Box flexDirection="column">
+        {await next(isOutputShown ? { ...e, props: { ...e.props, isExpanded: true } } : e)}
+        {drawn}
+      </elements.Box>
     )
   })
 }
