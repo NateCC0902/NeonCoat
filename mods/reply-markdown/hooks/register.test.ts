@@ -109,6 +109,39 @@ test('a reply with nothing to restyle is left to the engine whole', async ($, on
   await ui.unmount()
 })
 
+test('bold that Chinese punctuation ends is closable, code left as written', async ($, on) => {
+  const drawn = engine(on)
+  const ui = await mount(
+    $,
+    [
+      '**短答：就夠了。**記憶函式庫',
+      '',
+      '看**「重點」**吧，**用 `grep`。**後，`**a。**b`',
+      '',
+      '**Note:** text, **檔案**：Claude, **x。**',
+      '',
+      '- **Letta 的實驗。**Letta 是',
+      '',
+      '```md\n**x。**y\n```',
+    ].join('\n'),
+  )
+
+  expect(drawn).toEqual([
+    '**短答：就夠了**。記憶函式庫\n\n看「**重點**」吧，**用 `grep`**。後，`**a。**b`\n\n**Note:** text, **檔案**：Claude, **x。**',
+  ])
+  expect((await ui.find({ type: 'Markdown' }))?.props.text).toBe('**Letta 的實驗**。Letta 是')
+  expect((await ui.find({ type: 'Code' }))?.props.source).toBe('**x。**y')
+  await ui.unmount()
+})
+
+test('a reply of raw text alone reaches the engine with its bold closable', async ($, on) => {
+  const drawn = engine(on)
+  const ui = await mount($, '**收斂。**記憶')
+
+  expect(drawn).toEqual(['**收斂**。記憶'])
+  await ui.unmount()
+})
+
 test('tells Claude its forms only where a terminal draws the reply', async ($, on) => {
   on('prompt.compose', () => ({ sections: [{ id: 'intro', text: 'You are Claude.', scope: 'shared' }] }))
   const ids = async (surfaces: RenderSurface[]) => {

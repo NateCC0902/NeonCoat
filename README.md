@@ -30,6 +30,8 @@ A table, a task list, and a code fence as a card with its copy button:
 
 <img src="docs/markdown-blocks.png" width="830" alt="A table ruled under its header and between its rows, a task list with two items ticked, and a TypeScript snippet in a card with a copy button">
 
+Bold in Chinese is drawn bold where it ends in a full stop or a bracket. CommonMark leaves `**收斂。**記憶` as written, its asterisks showing, since Chinese sets no space after its punctuation; the mod moves that punctuation outside the `**` (`**收斂**。記憶`), which reads the same.
+
 ## What the tool views draw
 
 A dev server left running in the background, a failing test run, the fix, and the run again:
@@ -114,7 +116,7 @@ claude plugin validate mods/<name> && claude plugin test mods/<name>
 npx -p typescript tsc -p mods/<name>
 (cd mods/reply-media/render && npm test)
 echo '{}' | node statusline.mjs && node --test statusline.test.mjs
-e2e/<name>.sh   # shell-tail, turn-changes, test-summary: a real session in tmux, a few haiku turns
+e2e/<name>.sh   # shell-tail, turn-changes, test-summary, reply-markdown: a real session in tmux, a few haiku turns
 ```
 
 The types check works once Claude Code has loaded the mod and written its types to `mods/<name>/.claude-plugin/types/`. `CLAUDE.md` has the notes for changing or adding a mod.
