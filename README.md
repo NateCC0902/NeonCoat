@@ -42,7 +42,7 @@ A dev server left running in the background, a failing test run, the fix, and th
 
 ## Requirements
 
-- Claude Code with the mod API (function-hook plugins). The API is early access and may change under these mods. Last run on Claude Code 2.1.296.
+- Claude Code with the mod API (function-hook plugins). The API is early access and may change under these mods. Last run on Claude Code 2.1.304.
 - macOS. The picture scripts call `sips` and `open`.
 - For `reply-media`, a terminal that speaks the kitty graphics protocol: Ghostty or kitty.
 - Node.js, and for `reply-media`:
