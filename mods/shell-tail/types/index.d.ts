@@ -1,6 +1,6 @@
-/** A shell command Claude started that is still running in the background. */
+/** A shell command, Claude's or the person's (`!`), that is still running in the background. */
 export type Shell = {
-  /** The command as Claude wrote it. */
+  /** The command as Claude or the person wrote it. */
   command: string
   /** What the command does, in the words of its call; the band's name for it. */
   description?: string

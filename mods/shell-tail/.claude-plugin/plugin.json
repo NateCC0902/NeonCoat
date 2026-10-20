@@ -1,7 +1,7 @@
 {
   "name": "shell-tail",
   "version": "0.1.0",
-  "description": "Lists every shell still running above the prompt: how long it has run, how much it wrote, and its last line (terminal)",
+  "description": "Lists every shell still running in the background above the prompt: how long it has run, how much it wrote, its last line, and a button that stops it (terminal)",
   "types": "./types/index.d.ts",
   "userConfig": {
     "enabled": {

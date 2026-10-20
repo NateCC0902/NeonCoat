@@ -19,12 +19,19 @@ const READ_LIMIT = 4 * 1024 * 1024
 const LABEL_WIDTH = 48
 // Color codes, cursor moves and window titles, which a row would draw as junk.
 const ESCAPES = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g
+// shortcut: a `!` command the person moves to the background (ctrl+b) is no tool
+// call; only its two transcript rows name it and its file. If a release rewords
+// them, such a shell goes unlisted again, as Claude's own stay listed.
+const TYPED = /^<bash-input>([\s\S]*)<\/bash-input>$/
+const BACKGROUNDED = /^<bash-stdout>Command was [^<]*?backgrounded[^<]*?Output is being written to: (\/\S+?\.output)\./
 
 let project: string | undefined
 let folder: string | undefined
 let timer: Timer | undefined
 let isTicking = false
 let ticks = 0
+// The person's last `!` command, until a row says it went on in the background.
+let typed: string | undefined
 
 /** A file's last line as the band shows it: progress redraws and colors gone, blanks skipped. */
 const lastLine = (text: string) =>
@@ -49,10 +56,14 @@ const lineCount = (text: string) => {
   return count
 }
 
+/** m:ss, and h:mm:ss from an hour on. */
 const clock = (ms: number) => {
   const seconds = Math.floor(ms / 1000)
+  const pad = (n: number) => String(n).padStart(2, '0')
 
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+  return seconds < 3600
+    ? `${Math.floor(seconds / 60)}:${pad(seconds % 60)}`
+    : `${Math.floor(seconds / 3600)}:${pad(Math.floor(seconds / 60) % 60)}:${pad(seconds % 60)}`
 }
 
 const amount = (shell: Shell) =>
@@ -165,20 +176,47 @@ function watch($: EngineInterface) {
   timer ??= $.clock.every(TICK_MS, () => tick($))
 }
 
+/** Lists a background command by its file, and watches it. */
+async function add($: EngineInterface, file: string, call: Pick<Shell, 'command' | 'description' | 'startedAt'>) {
+  const shell: Shell = { ...call, file, elapsedMs: 0, lastLine: '', lineCount: 0, size: -1 }
+  await update($, shells, current => ({ ...current, [file]: shell }))
+  watch($)
+}
+
 /** Watches a background command's file, which its task id names. */
 async function follow($: EngineInterface, id: string, call: Pick<Shell, 'command' | 'description' | 'startedAt'>) {
   for (const dir of await folders($)) {
     const file = `${dir}/${id}.output`
-    if (!(await $.fs.exists(file))) {
-      continue
+    if (await $.fs.exists(file)) {
+      folder = dir
+      await add($, file, call)
+
+      return
     }
-    folder = dir
-    const shell: Shell = { ...call, file, elapsedMs: 0, lastLine: '', lineCount: 0, size: -1 }
-    await update($, shells, current => ({ ...current, [file]: shell }))
-    watch($)
+  }
+}
+
+/** How long the oldest process holding a file open has run, by `ps`'s elapsed time ([[dd-]hh:]mm:ss); 0 when none does. */
+async function ranFor($: EngineInterface, file: string) {
+  const { stdout } = await $.process.run(['sh', '-c', 'ps -o etime= -p "$(lsof -t -- "$1" | paste -sd , -)"', 'sh', file])
+  const seconds = stdout
+    .split('\n')
+    .map(line => /^\s*(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)\s*$/.exec(line))
+    .map(at => (at ? ((Number(at[1] ?? 0) * 24 + Number(at[2] ?? 0)) * 60 + Number(at[3])) * 60 + Number(at[4]) : 0))
+
+  return Math.max(0, ...seconds) * 1000
+}
+
+/** Stops a shell through Claude Code's own TaskStop, by the task id its file is named for, so its count of shells stays true. */
+async function stop($: EngineInterface, file: string) {
+  const id = file.slice(file.lastIndexOf('/') + 1).replace(/\.output$/, '')
+  const stopped = await $.tool.call({ tool: 'TaskStop', task_id: id }).catch((error: unknown) => ({ deny: String(error) }))
+  if (stopped.deny !== undefined || stopped.isError === true) {
+    $.ui.toast(`Not stopped: ${stopped.deny ?? stopped.text ?? 'TaskStop failed'}`)
 
     return
   }
+  await update($, shells, current => Object.fromEntries(Object.entries(current).filter(([each]) => each !== file)))
 }
 
 export const register: Register = (on, options) => {
@@ -210,6 +248,27 @@ export const register: Register = (on, options) => {
     return ran
   })
 
+  // A `!` command the person moved to the background: its command's row, then the row naming its file.
+  on('session.append', async ($, e, next) => {
+    const appended = await next(e)
+    for (const block of e.message.content) {
+      const text = block.type === 'text' && typeof block.text === 'string' ? block.text : ''
+      const input = TYPED.exec(text)
+      if (input) {
+        typed = input[1]!
+      }
+      const moved = BACKGROUNDED.exec(text)
+      if (moved && (await $.session.surfaces()).includes('terminal')) {
+        // Both rows are appended at ctrl+b, not when the command started: its process says how long it has run.
+        const startedAt = (await $.clock.now()) - (await ranFor($, moved[1]!))
+        await add($, moved[1]!, { command: typed ?? 'shell', startedAt })
+        typed = undefined
+      }
+    }
+
+    return appended
+  })
+
   // Above the prompt: every background shell still running, how long it has run, how much it wrote and its last line.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const running = Object.values(await read($, shells)).sort((a, b) => a.startedAt - b.startedAt)
@@ -217,7 +276,7 @@ export const register: Register = (on, options) => {
       return next(e)
     }
 
-    const { Box, Text } = $.ui.resolve(e)
+    const { Box, Text, Button } = $.ui.resolve(e)
     const beneath = await next(e)
     const shown = running.length > rows ? running.slice(0, rows - 1) : running
 
@@ -239,6 +298,7 @@ export const register: Register = (on, options) => {
                   {shell.lastLine}
                 </Text>
               </Box>
+              <Button key={`stop:${shell.file}`} plain dimColor label="stop" onPress={() => stop($, shell.file)} />
             </Box>
           ))}
           {shown.length < running.length && (
