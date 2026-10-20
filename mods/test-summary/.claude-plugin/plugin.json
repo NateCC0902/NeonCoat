@@ -28,6 +28,30 @@
       "description": "Count tsc's type errors, each with its place. Off, the engine draws its output.",
       "default": true
     },
+    "cargoTest": {
+      "type": "boolean",
+      "title": "cargo test",
+      "description": "Summarize a run of cargo test, or RTK's form of it. Off, the engine draws its output.",
+      "default": true
+    },
+    "goTest": {
+      "type": "boolean",
+      "title": "go test",
+      "description": "Summarize a run of go test -v, or RTK's form of go test. Without -v go names no passing test, so its own output is left to the engine. Off, the engine draws its output.",
+      "default": true
+    },
+    "pytest": {
+      "type": "boolean",
+      "title": "pytest",
+      "description": "Summarize a run of pytest, or RTK's form of it. Off, the engine draws its output.",
+      "default": true
+    },
+    "vitestJest": {
+      "type": "boolean",
+      "title": "vitest and jest",
+      "description": "Summarize a run of vitest or jest, or RTK's form of either. Off, the engine draws their output.",
+      "default": true
+    },
     "failureLines": {
       "type": "number",
       "title": "Lines of each failure",

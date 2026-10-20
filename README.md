@@ -12,7 +12,7 @@ Mods and a status line for [Claude Code](https://claude.com/claude-code). A repl
 | `mods/reply-markdown/` | Draws headings, lists, task lists, quotes, callouts (`> [!WARNING]`), rules and tables in color, and puts each code fence in a card with a copy button. |
 | `mods/skill-router/` | `/skill-router <question>` asks a small model which of your user-only skills fits the question. With no question it lists them. |
 | `mods/shell-tail/` | Lists every shell running in the background in a band above the prompt, Claude's or a `!` command you sent there with ctrl+b, named by what it does: how long it has run, how many lines it wrote, its last line, and a button that stops it. A command in the foreground is left to the transcript. |
-| `mods/test-summary/` | Draws a test or type-check run (`node --test`, `bun test`, `claude plugin test`, `tsc`) as one count line with each failure and its error under it. The passing tests, a copy of the failures and the whole output are a press away. |
+| `mods/test-summary/` | Draws a test or type-check run (`node --test`, `bun test`, `claude plugin test`, `cargo test`, `go test -v`, `pytest`, `vitest`, `jest`, `tsc`, and the compact form RTK rewrites each to) as one count line with each failure and its error under it. The passing tests, a copy of the failures and the whole output are a press away. |
 | `mods/turn-changes/` | Lists the files the last turn changed in a pane, each with its diff a press away: its edits, and in a git repo what its commands changed. `/changes` opens it; with `autoOpen` on, it opens by itself at a turn's first edit where the terminal is wide enough. |
 | `statusline.mjs` | The status line. First row: context used, cost, model, tokens per second, folder, cache hit rate, git state. Second row: subscription windows and when they refill, Remote Control, and the other sessions running on the machine. |
 
@@ -96,7 +96,7 @@ Each mod's options are rows in `/config`, and a change takes effect at once. Eve
 | `reply-markdown` | `tableBorder` | `rules` | `rules`: no frame, a line under the header and a faint one between the rows. Or a frame: `round`, `single` or `bold`. |
 | `reply-markdown` | `cardBorder` | `round` | The border of a code card and of a callout box: `round`, `single` or `bold`. |
 | `shell-tail` | `rows` | `5` | The most rows the band takes. Past it, the newest shells are counted on one row: `+N more`. |
-| `test-summary` | `nodeTest`, `bunTest`, `tsc` | `true` | Summarizes that runner's output (`bunTest` covers `claude plugin test` too). Off, Claude Code draws it. |
+| `test-summary` | `nodeTest`, `bunTest`, `cargoTest`, `goTest`, `pytest`, `vitestJest`, `tsc` | `true` | Summarizes that runner's output, and RTK's form of it (`bunTest` covers `claude plugin test` too, `vitestJest` both). Off, Claude Code draws it. |
 | `test-summary` | `failureLines` | `12` | How many lines of each failure's error are shown. `copy failures` copies them all. |
 | `turn-changes` | `bash` | `true` | Lists what a Bash command changed too, from a snapshot of the git repo before and after it. Off, only Edit and Write are listed, and a command runs without the two snapshots. |
 | `turn-changes` | `autoOpen` | `false` | Opens the pane at a turn's first edit, where the terminal is wide enough. Off, `/changes` opens it. |

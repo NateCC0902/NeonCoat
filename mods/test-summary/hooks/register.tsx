@@ -21,22 +21,77 @@ type Summary =
   | { kind: 'tests'; passed: Test[]; passedCount: number; failures: Failure[]; failed: number; seconds?: number }
   | { kind: 'types'; failures: Failure[] }
 
+// RTK (a hook that rewrites `cargo test` to `rtk cargo test` and the like) prints a
+// compact form of its own: a runner's reader knows both, the RTK one noted as such.
 const NODE_RESULT = /^\s*(✔|✖) (.+?)(?: \(([\d.]+)ms\))?$/
 const NODE_COUNT = /^ℹ (pass|fail|duration_ms) ([\d.]+)$/
-const BUN_RESULT = /^\((pass|fail)\) (.+?)(?: \[([\d.]+)(m?s)\])?$/
-const BUN_RAN = /^Ran \d+ tests? across \d+ files?\. \[([\d.]+)(m?s)\]$/
+const BUN_RESULT = /^\s*\((pass|fail)\) (.+?)(?: \[([\d.]+)(m?s)\])?$/
+const BUN_COUNT = /^\s*(\d+) (pass|fail)$/
+const BUN_RAN = /^\s*Ran \d+ tests? across \d+ files?\. \[([\d.]+)(m?s)\]$/
 const TSC_ERROR = /^(.+?)\((\d+),\d+\): error TS\d+: (.*)$/
+const CARGO_TEST = /^test (.+) \.\.\. (ok|FAILED)$/
+const CARGO_RESULT = /^test result: \w+\. (\d+) passed; (\d+) failed;.* finished in ([\d.]+)s$/
+// RTK, for a run with no failure.
+const CARGO_RTK = /^cargo test: (\d+) passed\b.*?([\d.]+)s\)$/
+const CARGO_FAILURE = /^---- (.+) stdout ----$/
+const CARGO_PANIC = /panicked at (.+?):(\d+):\d+:$/
+const GO_RUN = /^=== RUN\s/
+// The test a log line under it is from: parallel tests and subtests interleave theirs.
+const GO_HEADER = /^=== (?:RUN|CONT|NAME)\s+(\S+)/
+const GO_RESULT = /^\s*--- (PASS|FAIL): (\S+) \(([\d.]+)s\)$/
+const GO_LOG = /^\s*(\S+\.go):(\d+): (.*)$/
+const GO_RTK = /^Go test: (.+) in \d+ packages?$/
+const GO_RTK_FAILURE = /^\s+\[FAIL\] (.+)$/
+const PYTEST_TOTAL = /^=+ (.*\d+ (?:passed|failed|errors?).*?) in ([\d.]+)s(?: \([\d:]+\))? =+$/
+const PYTEST_RTK = /^Pytest: (.+) in ([\d.]+)s$/
+const PYTEST_PASSED = /^(\S+::\S+) PASSED\b/
+const PYTEST_FAILURE = /^_{3,} (.+?) _{3,}$/
+const PYTEST_RTK_FAILURE = /^\d+\. \[FAIL\] (.+)$/
+const PYTEST_AT = /^(\S+?):(\d+): /
+const VITEST_TESTS = /^\s+Tests {2}((?:\d+ \w+(?: \| )?)+) \(\d+\)$/
+const VITEST_DURATION = /^\s+Duration {2}([\d.]+)(m?s)\b/
+const VITEST_FAILURE = /^ FAIL {2}(.+?)(?: > (.+))?$/
+const VITEST_AT = /^\s*❯ (.+?):(\d+):\d+$/
+const JEST_TESTS = /^Tests:\s+((?:\d+ \w+, )*\d+ total)$/
+const JEST_TIME = /^Time:\s+([\d.]+) s\b/
+const JEST_FAILURE = /^ {2}● (.+)$/
+// RTK, the same for vitest and jest.
+const JS_RTK = /^PASS \((\d+)\) FAIL \((\d+)\)/
+const JS_RTK_FAILURE = /^\d+\. (.+)$/
+const STACK_AT = /^\s*at (?:.*\()?(?:file:\/\/)?([^\s()]+?):(\d+):\d+\)?$/
+// A code frame's numbered lines and its caret, which say no more than `at`.
+const CODE_FRAME = /^\s*>?\s*\d+ \||^\s+\||^\s*\^$/
 
-/** A failure's error as shown: its first lines, the stack and trailing blanks gone. */
+/** A failure's error as shown: its first lines, the stack and leading and trailing blanks gone. */
 const detail = (lines: string[]) => {
   const until = lines.findIndex(line => /^\s+at /.test(line))
   const kept = (until === -1 ? lines : lines.slice(0, until)).map(line => line.replace(/^ {2}/, ''))
   while (kept.length > 0 && kept.at(-1)!.trim() === '') {
     kept.pop()
   }
+  while (kept.length > 0 && kept[0]!.trim() === '') {
+    kept.shift()
+  }
 
   return kept.slice(0, DETAIL_LIMIT)
 }
+
+/** The lines after `at`, up to the first that `isEnd` holds for. */
+const block = (lines: string[], at: number, isEnd: (line: string) => boolean) => {
+  const end = lines.findIndex((line, index) => index > at && isEnd(line))
+
+  return lines.slice(at + 1, end === -1 ? undefined : end)
+}
+
+/** The first stack frame's place, as `file:line`. */
+const stackAt = (lines: string[]) => {
+  const place = lines.map(line => STACK_AT.exec(line)).find(match => match !== null)
+
+  return place === undefined ? undefined : `${place[1]}:${place[2]}`
+}
+
+/** How many `word` a count line such as `1 failed, 2 passed` gives. */
+const tally = (text: string, word: string) => Number(new RegExp(`(\\d+) ${word}`).exec(text)?.[1] ?? 0)
 
 /** `node --test`'s spec reporter: ✔ and ✖ lines, ℹ counts, then the failures again with their errors. */
 function node(lines: string[]): Summary | undefined {
@@ -87,13 +142,34 @@ function node(lines: string[]): Summary | undefined {
   }
 }
 
-/** `bun test` and `claude plugin test`: (pass) and (fail) lines, a failure's error indented under it. */
+/** A bun failure's error: indented under its (fail) line by claude plugin test and RTK, printed before it by bun itself. */
+const bunFailure = (lines: string[], at: number, name: string): Failure => {
+  const after = lines[at + 1] ?? ''
+  let body: string[]
+  if (/^\s+\S/.test(after) && !BUN_COUNT.test(after) && !BUN_RESULT.test(after)) {
+    const indent = after.search(/\S/)
+    body = block(lines, at, next => BUN_RESULT.test(next) || BUN_COUNT.test(next) || (next.trim() !== '' && next.search(/\S/) < indent))
+  } else {
+    // Back to the test before it, or its file's `name.test.ts:` line.
+    const from = lines.findLastIndex((line, index) => index < at && (BUN_RESULT.test(line) || /^\S+:$/.test(line)))
+    body = lines.slice(from + 1, at).filter(line => !CODE_FRAME.test(line))
+  }
+
+  return { name, at: stackAt(body), detail: detail(body) }
+}
+
+/** `bun test` and `claude plugin test`, and RTK's bun: (pass) and (fail) lines, the pass and fail counts. */
 function bun(lines: string[]): Summary | undefined {
   const passed: Test[] = []
   const failures: Failure[] = []
+  const counts: Record<string, number> = {}
   let seconds: number | undefined
 
   lines.forEach((line, at) => {
+    const count = BUN_COUNT.exec(line)
+    if (count) {
+      counts[count[2]!] = Number(count[1])
+    }
     const ran = BUN_RAN.exec(line)
     if (ran) {
       seconds = Number(ran[1]) / (ran[2] === 'ms' ? 1000 : 1)
@@ -108,14 +184,14 @@ function bun(lines: string[]): Summary | undefined {
 
       return
     }
-    const end = lines.findIndex((next, index) => index > at && !/^\s|^$/.test(next))
-    failures.push({ name: result[2]!, detail: detail(lines.slice(at + 1, end === -1 ? undefined : end)) })
+    failures.push(bunFailure(lines, at, result[2]!))
   })
-  if (passed.length + failures.length === 0) {
+  if (seconds === undefined && passed.length + failures.length === 0) {
     return undefined
   }
 
-  return { kind: 'tests', passed, passedCount: passed.length, failures, failed: failures.length, seconds }
+  // RTK lists only the failures: its counts say how many passed.
+  return { kind: 'tests', passed, passedCount: counts.pass ?? passed.length, failures, failed: counts.fail ?? failures.length, seconds }
 }
 
 /** `tsc`: one `file(line,col): error TS…` line per error, its continuation indented under it. */
@@ -131,6 +207,207 @@ function tsc(lines: string[]): Summary | undefined {
   }
 
   return failures.length === 0 ? undefined : { kind: 'types', failures }
+}
+
+/** `cargo test`: a `test result:` line per test binary, each failure's `---- name stdout ----` with its panic; RTK's one line when all passed. */
+function cargo(lines: string[]): Summary | undefined {
+  const totals = lines.map(line => CARGO_RESULT.exec(line)).filter(match => match !== null)
+  const short = lines.map(line => CARGO_RTK.exec(line)).find(match => match !== null)
+  if (totals.length === 0 && short === undefined) {
+    return undefined
+  }
+  const passed = lines
+    .map(line => CARGO_TEST.exec(line))
+    .filter(match => match?.[2] === 'ok')
+    .map(match => ({ name: match![1]! }))
+  const failures = lines.flatMap((line, at): Failure[] => {
+    const failure = CARGO_FAILURE.exec(line)
+    if (!failure) {
+      return []
+    }
+    const body = block(lines, at, next => CARGO_FAILURE.test(next) || next === 'failures:' || next.startsWith('test result: '))
+    const panic = body.map(each => CARGO_PANIC.exec(each)).find(match => match !== null)
+    const said = body.filter(each => each.trim() !== '' && !CARGO_PANIC.test(each) && !each.startsWith('note: '))
+
+    return [{ name: failure[1]!, at: panic && `${panic[1]}:${panic[2]}`, detail: said.slice(0, DETAIL_LIMIT) }]
+  })
+  if (totals.length === 0) {
+    return { kind: 'tests', passed, passedCount: Number(short![1]), failures, failed: failures.length, seconds: Number(short![2]) }
+  }
+  const sum = (index: number) => totals.reduce((total, match) => total + Number(match[index]), 0)
+
+  return { kind: 'tests', passed, passedCount: sum(1), failures, failed: sum(2), seconds: sum(3) }
+}
+
+/** A Go test's failure from its log lines (`file.go:N: message`), at the place of the first. */
+const goFailure = (name: string, body: string[]): Failure => {
+  const logs = body.map(line => GO_LOG.exec(line))
+  const first = logs.find(match => match !== null)
+
+  return {
+    name,
+    at: first && `${first[1]}:${first[2]}`,
+    detail: body.map((line, index) => logs[index]?.[3] ?? line.trim()).filter(line => line !== '').slice(0, DETAIL_LIMIT),
+  }
+}
+
+/** `go test -v`: RUN, PASS and FAIL lines, a failure's log between its RUN and FAIL; RTK's counts with each [FAIL] and its log. */
+function go(lines: string[]): Summary | undefined {
+  const total = lines.map(line => GO_RTK.exec(line)).find(match => match !== null)
+  if (total) {
+    const failures = lines.flatMap((line, at) => {
+      const failure = GO_RTK_FAILURE.exec(line)
+
+      return failure ? [goFailure(failure[1]!, block(lines, at, next => !/^ {3}/.test(next)))] : []
+    })
+
+    return { kind: 'tests', passed: [], passedCount: tally(total[1]!, 'passed'), failures, failed: tally(total[1]!, 'failed') }
+  }
+  // shortcut: without -v go names no passing test, so its output is left to the engine; read `go test -json` if that matters.
+  if (!lines.some(line => GO_RUN.test(line))) {
+    return undefined
+  }
+  const passed: Test[] = []
+  const failures: Failure[] = []
+  const logs: Record<string, string[]> = {}
+  let current = ''
+  for (const line of lines) {
+    const header = GO_HEADER.exec(line)
+    const result = GO_RESULT.exec(line)
+    if (header) {
+      current = header[1]!
+    } else if (result?.[1] === 'PASS') {
+      passed.push({ name: result[2]!, ms: Number(result[3]) * 1000 })
+    } else if (result) {
+      failures.push(goFailure(result[2]!, logs[result[2]!] ?? []))
+    } else if (/^\s/.test(line)) {
+      (logs[current] ??= []).push(line)
+    }
+  }
+  if (passed.length + failures.length === 0) {
+    return undefined
+  }
+
+  return { kind: 'tests', passed, passedCount: passed.length, failures, failed: failures.length }
+}
+
+/** A pytest failure from its traceback: the place of its first frame, its `E` lines. */
+const pytestFailure = (name: string, body: string[]): Failure => {
+  const place = body.map(line => PYTEST_AT.exec(line.trim())).find(match => match !== null)
+
+  return {
+    name,
+    at: place && `${place[1]}:${place[2]}`,
+    detail: body
+      .map(line => /^\s*E\s+(.*)$/.exec(line)?.[1])
+      .filter(line => line !== undefined)
+      .slice(0, DETAIL_LIMIT),
+  }
+}
+
+/** pytest: its `= 1 failed, 2 passed in 0.1s =` line, each failure's `___ name ___` traceback; RTK's `Pytest:` line and numbered failures. */
+function pytest(lines: string[]): Summary | undefined {
+  const total = lines.map(line => PYTEST_TOTAL.exec(line) ?? PYTEST_RTK.exec(line)).find(match => match !== null)
+  if (total === undefined) {
+    return undefined
+  }
+  const passed = lines
+    .map(line => PYTEST_PASSED.exec(line))
+    .filter(match => match !== null)
+    .map(match => ({ name: match[1]! }))
+  const failures = lines.flatMap((line, at) => {
+    const failure = PYTEST_FAILURE.exec(line)
+    const short = PYTEST_RTK_FAILURE.exec(line)
+    if (failure) {
+      return [pytestFailure(failure[1]!, block(lines, at, next => PYTEST_FAILURE.test(next) || /^=+ /.test(next)))]
+    }
+
+    return short ? [pytestFailure(short[1]!, block(lines, at, next => !/^\s/.test(next)))] : []
+  })
+
+  return {
+    kind: 'tests',
+    passed,
+    passedCount: tally(total[1]!, 'passed'),
+    failures,
+    failed: tally(total[1]!, 'failed') + tally(total[1]!, 'error'),
+    seconds: Number(total[2]),
+  }
+}
+
+/** vitest: its `Tests  1 failed | 2 passed` line, each failure's ` FAIL  file > name` with its error up to `❯ file:line`. */
+function vitest(lines: string[]): Summary | undefined {
+  const total = lines.map(line => VITEST_TESTS.exec(line)).find(match => match !== null)
+  if (total === undefined) {
+    return undefined
+  }
+  const duration = lines.map(line => VITEST_DURATION.exec(line)).find(match => match !== null)
+  const failures = lines.flatMap((line, at) => {
+    const failure = VITEST_FAILURE.exec(line)
+    if (!failure) {
+      return []
+    }
+    const body = block(lines, at, next => VITEST_AT.test(next) || next.startsWith('⎯') || VITEST_FAILURE.test(next))
+    const place = VITEST_AT.exec(lines[at + 1 + body.length] ?? '')
+
+    return [{ name: failure[2] ?? failure[1]!, at: place ? `${place[1]}:${place[2]}` : undefined, detail: detail(body) }]
+  })
+
+  return {
+    kind: 'tests',
+    passed: [],
+    passedCount: tally(total[1]!, 'passed'),
+    failures,
+    failed: tally(total[1]!, 'failed'),
+    seconds: duration && Number(duration[1]) / (duration[2] === 'ms' ? 1000 : 1),
+  }
+}
+
+/** jest: its `Tests: 1 failed, 2 passed, 3 total` line, each failure's `● name` with its error and stack. */
+function jest(lines: string[]): Summary | undefined {
+  const total = lines.map(line => JEST_TESTS.exec(line)).find(match => match !== null)
+  if (total === undefined) {
+    return undefined
+  }
+  const time = lines.map(line => JEST_TIME.exec(line)).find(match => match !== null)
+  const failures = lines.flatMap((line, at) => {
+    const failure = JEST_FAILURE.exec(line)
+    // A test's console output is printed under a ● too.
+    if (!failure || failure[1] === 'Console') {
+      return []
+    }
+    const body = block(lines, at, next => JEST_FAILURE.test(next) || /^(PASS|FAIL) |^Test Suites:/.test(next)).map(each => each.replace(/^ {4}/, ''))
+
+    return [{ name: failure[1]!, at: stackAt(body), detail: detail(body.filter(each => !CODE_FRAME.test(each))) }]
+  })
+
+  return {
+    kind: 'tests',
+    passed: [],
+    passedCount: tally(total[1]!, 'passed'),
+    failures,
+    failed: tally(total[1]!, 'failed'),
+    seconds: time && Number(time[1]),
+  }
+}
+
+/** RTK's vitest and jest: `PASS (2) FAIL (1)`, then each failure numbered with its error and stack. */
+function jsRtk(lines: string[]): Summary | undefined {
+  const total = lines.map(line => JS_RTK.exec(line)).find(match => match !== null)
+  if (total === undefined) {
+    return undefined
+  }
+  const failures = lines.flatMap((line, at) => {
+    const failure = JS_RTK_FAILURE.exec(line)
+    if (!failure) {
+      return []
+    }
+    const body = block(lines, at, next => /^\S/.test(next)).map(each => each.replace(/^ {3}/, ''))
+
+    return [{ name: failure[1]!, at: stackAt(body), detail: detail(body) }]
+  })
+
+  return { kind: 'tests', passed: [], passedCount: Number(total[1]), failures, failed: Number(total[2]) }
 }
 
 type Reader = (lines: string[]) => Summary | undefined
@@ -266,6 +543,12 @@ export const register: Register = (on, options) => {
     options.nodeTest !== false && node,
     options.bunTest !== false && bun,
     options.tsc !== false && tsc,
+    options.cargoTest !== false && cargo,
+    options.goTest !== false && go,
+    options.pytest !== false && pytest,
+    options.vitestJest !== false && vitest,
+    options.vitestJest !== false && jest,
+    options.vitestJest !== false && jsRtk,
   ].filter(reader => reader !== false)
   const failureLines = Math.max(1, Number(options.failureLines) || 12)
 
