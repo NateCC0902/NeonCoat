@@ -114,6 +114,7 @@ claude plugin validate mods/<name> && claude plugin test mods/<name>
 npx -p typescript tsc -p mods/<name>
 (cd mods/reply-media/render && npm test)
 echo '{}' | node statusline.mjs && node --test statusline.test.mjs
+e2e/<name>.sh   # shell-tail, turn-changes, test-summary: a real session in tmux, a few haiku turns
 ```
 
 The types check works once Claude Code has loaded the mod and written its types to `mods/<name>/.claude-plugin/types/`. `CLAUDE.md` has the notes for changing or adding a mod.
