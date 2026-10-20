@@ -13,9 +13,28 @@ const PANE = { id: 'turn-changes', title: 'Turn changes', closeOnEscape: true } 
 
 type Written = BuiltinToolResults['Edit'] | BuiltinToolResults['Write']
 
+// A snapshot stages the worktree into a copy of the index, so the real one is never touched,
+// and only `add -u`: an untracked file is listed, never hashed into .git/objects.
+// Prints the repo's top, the session root's place in it, the tree, then the untracked files.
+const SNAPSHOT = `prefix=$(git rev-parse --show-prefix) && cd "$(git rev-parse --show-toplevel)" && index=$(git rev-parse --git-path index) && tmp=$(mktemp) || exit 1
+trap 'rm -f "$tmp" "$tmp.lock"' EXIT
+cp "$index" "$tmp" 2>/dev/null || rm -f "$tmp"
+tree=$(GIT_INDEX_FILE=$tmp git add -u && GIT_INDEX_FILE=$tmp git write-tree) || exit 1
+printf '%s\\n%s\\n%s\\n' "$PWD" "$prefix" "$tree" && git ls-files -o --exclude-standard -z`
+const HUNK = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/
+// shortcut: a Bash call that creates more files than this lists only these, raise it if an install or a scaffold needs more.
+const NEW_FILES = 100
+
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`
 const count = (hunks: Hunk[], mark: string) =>
   hunks.reduce((sum, hunk) => sum + hunk.lines.filter(line => line.startsWith(mark)).length, 0)
+
+/** A new file's whole content as one hunk. */
+const created = (content: string): Hunk => {
+  const lines = content.replace(/\n$/, '').split('\n')
+
+  return { oldStart: 0, oldLines: 0, newStart: 1, newLines: lines.length, lines: lines.map(line => `+${line}`) }
+}
 
 /** An edit's hunks; a new file reports none, so its whole content is one. */
 const hunksOf = (result: Written): Hunk[] => {
@@ -23,9 +42,7 @@ const hunksOf = (result: Written): Hunk[] => {
     return result.structuredPatch.map(hunk => ({ ...hunk, lines: [...hunk.lines] }))
   }
   if ('type' in result && result.type === 'create' && result.content !== '') {
-    const lines = result.content.replace(/\n$/, '').split('\n')
-
-    return [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: lines.length, lines: lines.map(line => `+${line}`) }]
+    return [created(result.content)]
   }
 
   return []
@@ -35,19 +52,11 @@ const hunksOf = (result: Written): Hunk[] => {
 const unified = (hunks: Hunk[]) =>
   hunks.map(hunk => [`@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`, ...hunk.lines].join('\n')).join('\n')
 
-/** Adds an edit that went through to the turn's files, and opens the pane at the turn's first when `isOpened`. */
-async function record($: EngineInterface, ran: ToolCallResult, isOpened: boolean) {
-  const result = ran.result as Written | undefined
-  if (ran.deny !== undefined || ran.isError === true || result === undefined) {
-    return
-  }
-  const hunks = hunksOf(result)
+/** Adds a file's change to the turn's files, and opens the pane at the turn's first when `isOpened`. */
+async function add($: EngineInterface, path: string, isNew: boolean, hunks: Hunk[], isOpened: boolean) {
   if (hunks.length === 0) {
     return
   }
-  const root = await $.session.root()
-  const path = result.filePath.startsWith(`${root}/`) ? result.filePath.slice(root.length + 1) : result.filePath
-  const isNew = 'type' in result && result.type === 'create'
   const turnId = await read($, turn)
   let isFirst = false
 
@@ -74,12 +83,96 @@ async function record($: EngineInterface, ran: ToolCallResult, isOpened: boolean
   }
 }
 
+/** Adds an edit that went through. */
+async function record($: EngineInterface, ran: ToolCallResult, isOpened: boolean) {
+  const result = ran.result as Written | undefined
+  if (ran.deny !== undefined || ran.isError === true || result === undefined) {
+    return
+  }
+  const root = await $.session.root()
+  const path = result.filePath.startsWith(`${root}/`) ? result.filePath.slice(root.length + 1) : result.filePath
+  await add($, path, 'type' in result && result.type === 'create', hunksOf(result), isOpened)
+}
+
+type Snapshot = { top: string; prefix: string; tree: string; untracked: Set<string> }
+
+/** The repo's tracked files as one tree, and its untracked files: undefined outside a git repo. */
+async function snapshot($: EngineInterface): Promise<Snapshot | undefined> {
+  const { exitCode, stdout } = await $.process.run(['sh', '-c', SNAPSHOT], { cwd: await $.session.root() })
+  const lines = stdout.split('\n')
+  const [top = '', prefix = '', tree = ''] = lines
+  if (exitCode !== 0 || !/^[0-9a-f]{40,64}$/.test(tree)) {
+    return undefined
+  }
+
+  return { top, prefix, tree, untracked: new Set(lines.slice(3).join('\n').split('\0').filter(Boolean)) }
+}
+
+// git ends a `---` or `+++` line with a tab when its path holds a space.
+const headerPath = (line: string) => line.slice(4).replace(/\t$/, '')
+
+/** `git diff --no-prefix`'s files, by their path in the repo, each with its hunks. */
+const parseDiff = (text: string) => {
+  const files: { path: string; isNew: boolean; hunks: Hunk[] }[] = []
+  let from = ''
+  let isHeader = false
+  for (const line of text.split('\n')) {
+    const start = HUNK.exec(line)
+    if (line.startsWith('diff --git ')) {
+      isHeader = true
+    } else if (isHeader && line.startsWith('--- ')) {
+      from = headerPath(line)
+    } else if (isHeader && line.startsWith('+++ ')) {
+      const to = headerPath(line)
+      files.push({ path: to === '/dev/null' ? from : to, isNew: from === '/dev/null', hunks: [] })
+    } else if (start && files.length > 0) {
+      isHeader = false
+      const [, oldStart, oldLines = '1', newStart, newLines = '1'] = start
+      files.at(-1)!.hunks.push({ oldStart: Number(oldStart), oldLines: Number(oldLines), newStart: Number(newStart), newLines: Number(newLines), lines: [] })
+    } else if (!isHeader && /^[ +-]/.test(line)) {
+      files.at(-1)?.hunks.at(-1)?.lines.push(line)
+    }
+  }
+
+  return files
+}
+
+/** Adds what a Bash call changed since `before`: the tracked files' diff, and the files it created. */
+async function recordBash($: EngineInterface, before: Snapshot, isOpened: boolean) {
+  const after = await snapshot($)
+  if (after === undefined || after.top !== before.top) {
+    return
+  }
+  const changed: ReturnType<typeof parseDiff> = []
+  if (after.tree !== before.tree) {
+    const { stdout } = await $.process.run(
+      ['git', '-c', 'core.quotepath=off', 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '--no-renames', '--no-prefix', before.tree, after.tree],
+      { cwd: after.top },
+    )
+    changed.push(...parseDiff(stdout))
+  }
+  const fresh = [...after.untracked].filter(path => !before.untracked.has(path))
+  for (const path of fresh.slice(0, NEW_FILES)) {
+    // Over 4 MiB, gone, or binary: left out.
+    const content = await $.fs.read(`${after.top}/${path}`).catch(() => '')
+    if (content !== '' && !content.includes('\0')) {
+      changed.push({ path, isNew: true, hunks: [created(content)] })
+    }
+  }
+  for (const file of changed) {
+    const path = file.path.startsWith(after.prefix) ? file.path.slice(after.prefix.length) : `${after.top}/${file.path}`
+    await add($, path, file.isNew, file.hunks, isOpened)
+  }
+}
+
 export const register: Register = (on, options) => {
   if (options.enabled === false) {
     return
   }
   // Off by default: then the pane opens by /changes alone.
   const autoOpen = options.autoOpen === true
+  // Off, a command's changes are not looked for, and a Bash call skips the two snapshots.
+  const isBashFollowed = options.bash !== false
 
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'changes', description: 'Show the files the last turn changed, each with its diff, in a pane' })
@@ -121,6 +214,24 @@ export const register: Register = (on, options) => {
   on('tool.call', { tool: 'Write' }, async ($, e, next) => {
     const ran = await next(e)
     await record($, ran, autoOpen)
+
+    return ran
+  })
+
+  // A file a command changed: the repo snapshotted before and after the call, outside a git repo nothing.
+  // shortcut: a background call's later writes are missed, an edit or another command running at the same
+  // time is counted twice, and an untracked file that was already there and changed is missed; snapshot
+  // per turn instead if one of these bites.
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    if (!isBashFollowed) {
+      return next(e)
+    }
+    const before = await snapshot($).catch(() => undefined)
+    const ran = await next(e)
+    // A call Claude Code ran as read-only (ls, grep) changed nothing: no second snapshot.
+    if (before !== undefined && ran.deny === undefined && ran.isReadOnly !== true) {
+      await recordBash($, before, autoOpen).catch(() => undefined)
+    }
 
     return ran
   })

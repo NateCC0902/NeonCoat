@@ -10,6 +10,12 @@
       "description": "Turn this mod off without removing it. Takes effect at once.",
       "default": true
     },
+    "bash": {
+      "type": "boolean",
+      "title": "Commands' changes",
+      "description": "List the files a Bash command changed too, read from the git repo before and after each command. Off, only Edit and Write are listed, and a command runs without the two snapshots.",
+      "default": true
+    },
     "autoOpen": {
       "type": "boolean",
       "title": "Open by itself",
